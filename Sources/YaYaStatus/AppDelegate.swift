@@ -10,6 +10,8 @@ final class FloatingStatusPanel: NSPanel {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let taskCollection = TaskCollectionStore()
     private lazy var codexStore = CodexStatusStore(collection: taskCollection)
+    private lazy var workBuddyStore = WorkBuddyStatusStore(collection: taskCollection)
+    private lazy var kimiWorkStore = KimiWorkStatusStore(collection: taskCollection)
     private var panel: FloatingStatusPanel!
     private var statusItem: NSStatusItem!
     private static let savedFrameKey = "floating-panel-frame-v1"
@@ -19,6 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         installPanel()
         installMenuBar()
         codexStore.start()
+        workBuddyStore.start()
+        kimiWorkStore.start()
         showPanel()
     }
 
@@ -29,6 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         codexStore.stop()
+        workBuddyStore.stop()
+        kimiWorkStore.stop()
     }
 
     func windowDidMove(_ notification: Notification) {
@@ -37,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func installPanel() {
-        let size = NSSize(width: 390, height: 510)
+        let size = NSSize(width: 390, height: 570)
         let initialFrame = restoredFrame(size: size)
         panel = FloatingStatusPanel(
             contentRect: initialFrame,
@@ -61,7 +67,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.hidesOnDeactivate = false
         panel.animationBehavior = .none
         panel.delegate = self
-        panel.contentView = NSHostingView(rootView: StatusPanelView(store: codexStore, collection: taskCollection))
+        panel.contentView = NSHostingView(rootView: StatusPanelView(
+            store: codexStore,
+            collection: taskCollection,
+            onRefresh: { [weak self] in self?.refreshAll() }
+        ))
     }
 
     private func restoredFrame(size: NSSize) -> NSRect {
@@ -93,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem.button?.toolTip = "丫丫状态"
         let menu = NSMenu()
         menu.addItem(withTitle: "显示悬浮框", action: #selector(showPanelFromMenu), keyEquivalent: "o").target = self
-        menu.addItem(withTitle: "刷新 Codex", action: #selector(refreshCodex), keyEquivalent: "r").target = self
+        menu.addItem(withTitle: "刷新全部工作台", action: #selector(refreshFromMenu), keyEquivalent: "r").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "退出丫丫状态", action: #selector(quit), keyEquivalent: "q").target = self
         statusItem.menu = menu
@@ -104,6 +114,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func showPanelFromMenu() { showPanel() }
-    @objc private func refreshCodex() { codexStore.refreshNow() }
+    private func refreshAll() {
+        codexStore.refreshNow()
+        Task {
+            await workBuddyStore.refresh()
+            await kimiWorkStore.refresh()
+        }
+    }
+
+    @objc private func refreshFromMenu() { refreshAll() }
     @objc private func quit() { NSApp.terminate(nil) }
 }

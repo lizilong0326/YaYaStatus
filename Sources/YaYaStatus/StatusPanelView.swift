@@ -16,13 +16,20 @@ private enum Palette {
 struct StatusPanelView: View {
     @ObservedObject var store: CodexStatusStore
     @ObservedObject var collection: TaskCollectionStore
+    let onRefresh: () -> Void
+    @State private var selectedSource: TaskSource?
+
+    private var visibleTasks: [MonitoredTask] {
+        guard let selectedSource else { return collection.tasks }
+        return collection.tasks.filter { $0.source == selectedSource }
+    }
 
     private var activeTasks: [MonitoredTask] {
-        collection.tasks.filter { $0.state == .working || $0.state == .waiting }
+        visibleTasks.filter { $0.state == .working || $0.state == .waiting }
     }
 
     private var recentTasks: [MonitoredTask] {
-        collection.tasks.filter { $0.state != .working && $0.state != .waiting }
+        visibleTasks.filter { $0.state != .working && $0.state != .waiting }
     }
 
     var body: some View {
@@ -35,7 +42,7 @@ struct StatusPanelView: View {
             footer
         }
         .padding(20)
-        .frame(width: 390, height: 510)
+        .frame(width: 390, height: 570)
         .background {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Palette.background)
@@ -67,7 +74,7 @@ struct StatusPanelView: View {
             }
             Spacer()
             Button {
-                store.refreshNow()
+                onRefresh()
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 13, weight: .semibold))
@@ -76,28 +83,30 @@ struct StatusPanelView: View {
                     .background(Circle().fill(Color.white.opacity(0.06)))
             }
             .buttonStyle(.plain)
-            .help("刷新 Codex 任务")
+            .help("刷新全部工作台")
         }
     }
 
     private var providerCard: some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 9) {
-                Image(systemName: "chevron.left.forwardslash.chevron.right")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Palette.primary)
-                    .frame(width: 28, height: 28)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.1)))
-                Text("Codex")
+                Text("工作台")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Palette.primary)
                 Spacer()
-                Circle()
-                    .fill(store.taskError == nil && store.lastTaskSync != nil ? Palette.green : Palette.orange)
-                    .frame(width: 6, height: 6)
-                Text(connectionLabel)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Palette.secondary)
+                Button {
+                    selectedSource = nil
+                } label: {
+                    Text(selectedSource == nil ? "全部来源" : "查看全部")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(selectedSource == nil ? Palette.green : Palette.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            HStack(spacing: 5) {
+                providerBadge(.codex)
+                providerBadge(.workBuddy)
+                providerBadge(.kimiWork)
             }
             HStack(spacing: 8) {
                 Text("\(activeTasks.count) 个进行中")
@@ -105,7 +114,7 @@ struct StatusPanelView: View {
                     .foregroundStyle(activeTasks.isEmpty ? Palette.secondary : Palette.green)
                 Text("·")
                     .foregroundStyle(Palette.secondary)
-                Text("\(collection.tasks.count) 个最近任务")
+                Text("\(visibleTasks.count) 个任务")
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.secondary)
                 Spacer()
@@ -130,10 +139,32 @@ struct StatusPanelView: View {
         .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Palette.border, lineWidth: 1))
     }
 
-    private var connectionLabel: String {
-        if store.taskError != nil { return "连接失败" }
-        if store.lastTaskSync == nil { return "连接中" }
-        return "已连接"
+    private func providerBadge(_ source: TaskSource) -> some View {
+        let connection = collection.connections[source]
+        let state: SourceConnectionState
+        if source == .codex {
+            state = store.taskError != nil ? .unavailable : (store.lastTaskSync == nil ? .limited : .connected)
+        } else {
+            state = connection?.state ?? .limited
+        }
+        return Button {
+            selectedSource = selectedSource == source ? nil : source
+        } label: {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(state == .connected ? Palette.green : (state == .limited ? Palette.orange : Palette.red))
+                    .frame(width: 5, height: 5)
+                Text(source.label)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Palette.primary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(selectedSource == source ? Palette.green.opacity(0.18) : Color.white.opacity(0.07)))
+        }
+        .buttonStyle(.plain)
+        .help("筛选 \(source.label)；\(connection?.detail ?? (source == .codex ? "Codex 任务与额度" : "正在读取"))")
     }
 
     private var taskContent: some View {
@@ -167,7 +198,7 @@ struct StatusPanelView: View {
                             .padding(.top, activeTasks.isEmpty ? 0 : 9)
                         ForEach(recentTasks) { task in taskRow(task) }
                     }
-                    if collection.tasks.isEmpty {
+                    if visibleTasks.isEmpty {
                         emptyState
                     }
                 }
@@ -211,9 +242,15 @@ struct StatusPanelView: View {
                     .font(.system(size: 10))
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Palette.secondary)
+                if task.openScope == .application {
+                    Text("打开应用")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Palette.secondary)
+                } else if task.openScope == .exactTask {
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Palette.secondary)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 10)
@@ -221,7 +258,10 @@ struct StatusPanelView: View {
             .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Palette.surface))
         }
         .buttonStyle(.plain)
-        .help("在 \(task.source.label) 中打开：\(task.title)")
+        .disabled(task.openURL == nil)
+        .help(task.openScope == .exactTask
+              ? "在 \(task.source.label) 中打开：\(task.title)"
+              : "打开 \(task.source.label) 应用；暂不能定位到此任务")
     }
 
     private var emptyState: some View {
@@ -229,7 +269,7 @@ struct StatusPanelView: View {
             Image(systemName: "tray")
                 .font(.system(size: 24, weight: .light))
                 .foregroundStyle(Palette.secondary)
-            Text(store.isRefreshing ? "正在读取 Codex 任务…" : "暂时没有最近任务")
+            Text(store.isRefreshing && selectedSource == nil ? "正在读取任务…" : "暂时没有任务")
                 .font(.system(size: 12))
                 .foregroundStyle(Palette.secondary)
         }
@@ -254,7 +294,7 @@ struct StatusPanelView: View {
                 .font(.system(size: 10))
             Text("拖动空白处移动悬浮框")
             Spacer()
-            Text("其他工作台陆续接入")
+            Text("Codex · WorkBuddy · Kimi Work")
         }
         .font(.system(size: 10))
         .foregroundStyle(Palette.secondary)

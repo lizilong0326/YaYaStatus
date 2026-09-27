@@ -38,6 +38,12 @@ enum MonitoredTaskState: String, Codable, Sendable {
     }
 }
 
+enum TaskOpenScope: String, Sendable {
+    case exactTask
+    case application
+    case unavailable
+}
+
 struct MonitoredTask: Identifiable, Equatable, Sendable {
     let source: TaskSource
     let sourceTaskID: String
@@ -45,13 +51,31 @@ struct MonitoredTask: Identifiable, Equatable, Sendable {
     let state: MonitoredTaskState
     let updatedAt: Date
     let openURL: URL?
+    let openScope: TaskOpenScope
 
     var id: String { "\(source.rawValue):\(sourceTaskID)" }
+}
+
+enum SourceConnectionState: String, Sendable {
+    case connected
+    case limited
+    case unavailable
+}
+
+struct SourceConnection: Equatable, Sendable {
+    let source: TaskSource
+    let state: SourceConnectionState
+    let detail: String
 }
 
 @MainActor
 final class TaskCollectionStore: ObservableObject {
     @Published private(set) var tasks: [MonitoredTask] = []
+    @Published private(set) var connections: [TaskSource: SourceConnection] = [:]
+
+    func setConnection(_ connection: SourceConnection) {
+        connections[connection.source] = connection
+    }
 
     func replaceTasks(from source: TaskSource, with replacement: [MonitoredTask]) {
         tasks = (tasks.filter { $0.source != source } + replacement)

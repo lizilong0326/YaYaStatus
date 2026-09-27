@@ -189,7 +189,8 @@ final class CodexStatusStore: ObservableObject {
                 title: task.title,
                 state: state,
                 updatedAt: task.updatedAt,
-                openURL: task.deepLink
+                openURL: task.deepLink,
+                openScope: .exactTask
             )
         })
     }
