@@ -11,7 +11,9 @@ export function sessionsFromSnapshots(rows, uid) {
     for (const item of data?.conversations || []) {
       const id = String(item.conversation_id || '');
       if (/^\d{12,24}$/u.test(id) && !sessions.has(id)) {
-        sessions.set(id, { id, title: item.name || null });
+        const updatedAt = Number(item.update_time || item.create_time);
+        sessions.set(id, { id, title: item.name || null,
+          updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : null });
       }
     }
     for (const group of [...(data?.projects || []), ...(data?.devices || [])]) visit(group);
@@ -101,7 +103,8 @@ export async function stopGeneration(client, id, timeoutMs) {
 
 export async function sessionIndex(profile) {
   // --profile is a disk selection, not an account switch in a running app.
-  const activeProfile = readProfiles(getDataDir()).lastUsed;
+  // Some current DoubaoWork builds omit profile.last_used while using Default.
+  const activeProfile = readProfiles(getDataDir()).lastUsed || 'Default';
   const status = profile.directory === activeProfile ? await cdpStatus() : { available: false };
   if (status.identityMismatch) throw new Error(status.error);
   if (status.available) {

@@ -20,7 +20,7 @@ private actor DoubaoWorkReader {
         return object["available"] as? Bool == true
     }
 
-    func sessions(limit: Int) throws -> [(id: String, title: String)] {
+    func sessions(limit: Int) throws -> [(id: String, title: String, updatedAt: Date)] {
         let data = try runCLI(["sessions", "list"])
         guard let array = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
             throw error("豆包会话列表格式不兼容")
@@ -29,7 +29,9 @@ private actor DoubaoWorkReader {
             guard let id = row["id"] as? String, id.count >= 12, id.count <= 24,
                   id.allSatisfy(\.isNumber) else { return nil }
             let title = (row["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return (id, title?.isEmpty == false ? title! : "豆包任务")
+            let seconds = (row["updatedAt"] as? NSNumber)?.doubleValue ?? 0
+            let updatedAt = seconds > 0 ? Date(timeIntervalSince1970: seconds) : .distantPast
+            return (id, title?.isEmpty == false ? title! : "豆包任务", updatedAt)
         }
     }
 
@@ -146,8 +148,7 @@ final class DoubaoWorkStatusStore {
                 } else {
                     state = old?.state ?? .unknown
                 }
-                let date = old?.state == state && old?.title == session.title
-                    ? old!.updatedAt : Date().addingTimeInterval(Double(-index))
+                let date = max(session.updatedAt, old?.updatedAt ?? .distantPast)
                 var link = URLComponents()
                 link.scheme = "doubaowork"
                 link.host = "doubaoworkapp"

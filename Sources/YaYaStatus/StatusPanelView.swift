@@ -111,11 +111,16 @@ struct StatusPanelView: View {
                 }
                 .buttonStyle(.plain)
             }
-            HStack(spacing: 5) {
-                providerBadge(.codex)
-                providerBadge(.workBuddy)
-                providerBadge(.kimiWork)
-                providerBadge(.doubaoWork)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 5) {
+                    providerBadge(.codex)
+                    providerBadge(.workBuddy)
+                    providerBadge(.kimiWork)
+                }
+                HStack(spacing: 5) {
+                    providerBadge(.doubaoWork)
+                    providerBadge(.grokBot)
+                }
             }
             if let selectedSource, let connection = collection.connections[selectedSource],
                connection.state != .connected {
@@ -130,7 +135,7 @@ struct StatusPanelView: View {
                     .foregroundStyle(activeTasks.isEmpty ? Palette.secondary : Palette.green)
                 Text("·")
                     .foregroundStyle(Palette.secondary)
-                Text("\(visibleTasks.count) 个任务")
+                Text("\(visibleTasks.count) 条任务/会话")
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.secondary)
                 Spacer()
@@ -186,7 +191,7 @@ struct StatusPanelView: View {
     private var taskContent: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
-                Text("任务")
+                Text(selectedSource == .grokBot ? "Bot 会话" : (selectedSource == nil ? "任务与会话" : "任务"))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Palette.primary)
                 Spacer()
@@ -210,7 +215,7 @@ struct StatusPanelView: View {
                         ForEach(activeTasks) { task in taskRow(task) }
                     }
                     if !recentTasks.isEmpty {
-                        sectionTitle("最近任务")
+                        sectionTitle(selectedSource == .grokBot ? "最近会话" : (selectedSource == nil ? "最近任务/会话" : "最近任务"))
                             .padding(.top, activeTasks.isEmpty ? 0 : 9)
                         ForEach(recentTasks) { task in taskRow(task) }
                     }
@@ -310,7 +315,7 @@ struct StatusPanelView: View {
                 .font(.system(size: 10))
             Text("拖动空白处移动悬浮框")
             Spacer()
-            Text("Codex · WorkBuddy · Kimi · 豆包")
+            Text("Codex · WorkBuddy · Kimi · 豆包 · Grok")
         }
         .font(.system(size: 10))
         .foregroundStyle(Palette.secondary)
