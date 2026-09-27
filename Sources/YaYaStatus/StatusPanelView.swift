@@ -32,6 +32,14 @@ struct StatusPanelView: View {
         visibleTasks.filter { $0.state != .working && $0.state != .waiting }
     }
 
+    private var emptyTitle: String {
+        if store.isRefreshing && selectedSource == nil { return "正在读取任务…" }
+        if let selectedSource, collection.connections[selectedSource]?.state != .connected {
+            return "尚未读取到任务"
+        }
+        return "暂时没有任务"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -107,6 +115,14 @@ struct StatusPanelView: View {
                 providerBadge(.codex)
                 providerBadge(.workBuddy)
                 providerBadge(.kimiWork)
+                providerBadge(.doubaoWork)
+            }
+            if let selectedSource, let connection = collection.connections[selectedSource],
+               connection.state != .connected {
+                Text(connection.detail)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Palette.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
                 Text("\(activeTasks.count) 个进行中")
@@ -269,7 +285,7 @@ struct StatusPanelView: View {
             Image(systemName: "tray")
                 .font(.system(size: 24, weight: .light))
                 .foregroundStyle(Palette.secondary)
-            Text(store.isRefreshing && selectedSource == nil ? "正在读取任务…" : "暂时没有任务")
+            Text(emptyTitle)
                 .font(.system(size: 12))
                 .foregroundStyle(Palette.secondary)
         }
@@ -294,7 +310,7 @@ struct StatusPanelView: View {
                 .font(.system(size: 10))
             Text("拖动空白处移动悬浮框")
             Spacer()
-            Text("Codex · WorkBuddy · Kimi Work")
+            Text("Codex · WorkBuddy · Kimi · 豆包")
         }
         .font(.system(size: 10))
         .foregroundStyle(Palette.secondary)

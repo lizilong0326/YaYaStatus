@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private lazy var codexStore = CodexStatusStore(collection: taskCollection)
     private lazy var workBuddyStore = WorkBuddyStatusStore(collection: taskCollection)
     private lazy var kimiWorkStore = KimiWorkStatusStore(collection: taskCollection)
+    private lazy var doubaoWorkStore = DoubaoWorkStatusStore(collection: taskCollection)
     private var panel: FloatingStatusPanel!
     private var statusItem: NSStatusItem!
     private static let savedFrameKey = "floating-panel-frame-v1"
@@ -23,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         codexStore.start()
         workBuddyStore.start()
         kimiWorkStore.start()
+        doubaoWorkStore.start()
         showPanel()
     }
 
@@ -35,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         codexStore.stop()
         workBuddyStore.stop()
         kimiWorkStore.stop()
+        doubaoWorkStore.stop()
     }
 
     func windowDidMove(_ notification: Notification) {
@@ -119,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         Task {
             await workBuddyStore.refresh()
             await kimiWorkStore.refresh()
+            await doubaoWorkStore.refresh()
         }
     }
 

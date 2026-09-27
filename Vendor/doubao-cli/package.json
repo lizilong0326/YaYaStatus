@@ -1,0 +1,37 @@
+{
+  "name": "doubao-cli",
+  "version": "0.12.0",
+  "description": "Programmatic control for local Doubao desktop sessions on macOS",
+  "author": "Fullstop000 <fullstop1005@gmail.com>",
+  "type": "module",
+  "bin": {
+    "doubao": "bin/doubao.mjs"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:e2e": "node scripts/e2e.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fullstop000/doubao-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Fullstop000/doubao-cli/issues"
+  },
+  "homepage": "https://github.com/Fullstop000/doubao-cli#readme",
+  "keywords": [
+    "doubao",
+    "cli",
+    "macos",
+    "automation",
+    "cdp"
+  ],
+  "license": "MIT"
+}

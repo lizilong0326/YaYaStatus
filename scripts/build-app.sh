@@ -11,6 +11,8 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$ROOT_DIR/.build/release/YaYaStatus" "$APP_DIR/Contents/MacOS/YaYaStatus"
 cp "$ROOT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+rm -rf "$APP_DIR/Contents/Resources/doubao-cli"
+cp -R "$ROOT_DIR/Vendor/doubao-cli" "$APP_DIR/Contents/Resources/doubao-cli"
 printf 'APPL????' > "$APP_DIR/Contents/PkgInfo"
 codesign --force --sign - "$APP_DIR"
 
