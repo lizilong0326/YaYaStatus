@@ -139,11 +139,17 @@ final class CodexStatusStore: ObservableObject {
                 let previous = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
                 tasks = fetched.map { task in
                     if let runtime = states[task.id] {
-                        return task.withState(runtime.taskState())
+                        return task.withRuntime(runtime)
                     }
-                    if task.state == .working { return task }
+                    if task.state == .working {
+                        return CodexTaskSummary(id: task.id, title: task.title, state: task.state,
+                                                updatedAt: task.updatedAt, source: task.source,
+                                                startedAt: previous[task.id]?.startedAt)
+                    }
                     if let old = previous[task.id], old.state != .working {
-                        return task.withState(old.state)
+                        return CodexTaskSummary(id: task.id, title: task.title, state: old.state,
+                                                updatedAt: task.updatedAt, source: task.source,
+                                                startedAt: old.startedAt, endedAt: old.endedAt)
                     }
                     return task
                 }
@@ -232,6 +238,8 @@ final class CodexStatusStore: ObservableObject {
                 title: task.title,
                 state: state,
                 updatedAt: task.updatedAt,
+                startedAt: task.startedAt,
+                endedAt: task.endedAt,
                 openURL: task.deepLink,
                 openScope: .exactTask
             )

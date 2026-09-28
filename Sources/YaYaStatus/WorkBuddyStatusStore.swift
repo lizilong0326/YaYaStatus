@@ -13,11 +13,15 @@ private struct WorkBuddyHookSnapshot: Decodable, Sendable {
     let sessionID: String
     let state: MonitoredTaskState
     let recordedAt: Date
+    let startedAt: Date?
+    let endedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case sessionID = "session_id"
         case state
         case recordedAt = "recorded_at"
+        case startedAt = "started_at"
+        case endedAt = "ended_at"
     }
 }
 
@@ -138,10 +142,12 @@ final class WorkBuddyStatusStore {
             var tasks = sessions.map { session in
                 let state: MonitoredTaskState
                 let updatedAt: Date
+                var timingHook: WorkBuddyHookSnapshot?
                 if let hook = hooks[session.id],
                    hook.recordedAt >= session.updatedAt.addingTimeInterval(-10) {
                     state = trustworthy(hook.state, at: hook.recordedAt, appRunning: isRunning)
                     updatedAt = max(session.updatedAt, hook.recordedAt)
+                    timingHook = hook
                 } else {
                     state = trustworthy(mappedDatabaseState(session.status), at: session.updatedAt, appRunning: isRunning)
                     updatedAt = session.updatedAt
@@ -152,6 +158,11 @@ final class WorkBuddyStatusStore {
                     title: session.title,
                     state: state,
                     updatedAt: updatedAt,
+                    startedAt: timingHook?.startedAt,
+                    endedAt: timingHook?.endedAt ?? (
+                        state == .completed || state == .interrupted || state == .failed
+                            ? session.updatedAt : nil
+                    ),
                     openURL: sessionURL(id: session.id),
                     openScope: .exactTask
                 )
@@ -165,6 +176,8 @@ final class WorkBuddyStatusStore {
                     title: "WorkBuddy 任务",
                     state: trustworthy(hook.state, at: hook.recordedAt, appRunning: isRunning),
                     updatedAt: hook.recordedAt,
+                    startedAt: hook.startedAt,
+                    endedAt: hook.endedAt,
                     openURL: sessionURL(id: hook.sessionID),
                     openScope: .exactTask
                 ))

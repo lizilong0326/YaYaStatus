@@ -27,6 +27,7 @@ struct CodexTaskRuntimeRecord: Equatable, Sendable {
     let turnID: String
     let state: CodexTurnRuntimeState
     let startedAt: Date?
+    let completedAt: Date?
 
     func taskState(now: Date = .now, staleAfter: TimeInterval = 24 * 60 * 60) -> CodexTaskState {
         guard state == .inProgress else { return state.taskState }
@@ -84,7 +85,7 @@ actor IslandCodexTaskRuntimeIndex {
         let placeholders = Array(repeating: "?", count: uniqueIDs.count).joined(separator: ",")
         let sql = """
             WITH latest_turns AS (
-                SELECT thread_id, turn_id, status, started_at,
+                SELECT thread_id, turn_id, status, started_at, completed_at,
                        ROW_NUMBER() OVER (
                            PARTITION BY thread_id
                            ORDER BY rollout_ordinal DESC
@@ -92,7 +93,7 @@ actor IslandCodexTaskRuntimeIndex {
                 FROM thread_turns
                 WHERE thread_id IN (\(placeholders))
             )
-            SELECT thread_id, turn_id, status, started_at
+            SELECT thread_id, turn_id, status, started_at, completed_at
             FROM latest_turns
             WHERE row_number = 1;
             """
@@ -127,7 +128,8 @@ actor IslandCodexTaskRuntimeIndex {
                 threadID: threadID,
                 turnID: String(cString: turnText),
                 state: CodexTurnRuntimeState(rawValue: String(cString: statusText)) ?? .unknown,
-                startedAt: date(column: 3, statement: statement)
+                startedAt: date(column: 3, statement: statement),
+                completedAt: date(column: 4, statement: statement)
             )
         }
         return result

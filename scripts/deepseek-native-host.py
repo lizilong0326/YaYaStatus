@@ -49,12 +49,19 @@ def handle(message):
         return False
     if state not in ("working", "ended", "unknown"):
         return False
+    started_at = message.get("startedAt")
+    ended_at = message.get("endedAt")
+    for value in (started_at, ended_at):
+        if value is not None and (not isinstance(value, (int, float)) or not 1577836800 < value < 4102444800):
+            return False
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     record = {
         "tabID": tab_id,
         "conversationID": conversation_id,
         "title": title or "DeepSeek 会话",
         "state": state,
+        "startedAt": started_at,
+        "endedAt": ended_at,
         "updatedAt": time.time(),
     }
     fd, temporary = tempfile.mkstemp(prefix=".deepseek-", dir=directory)

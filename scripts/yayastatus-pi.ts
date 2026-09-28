@@ -10,6 +10,8 @@ type State = "working" | "waiting" | "completed" | "interrupted" | "failed" | "u
 export default function (pi: ExtensionAPI) {
   let state: State = "unknown";
   let lastReason: string | undefined;
+  let startedAt: number | undefined;
+  let endedAt: number | undefined;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
 
   function save(ctx: { sessionManager: { getSessionId(): string; getSessionFile(): string | undefined } }) {
@@ -19,7 +21,8 @@ export default function (pi: ExtensionAPI) {
     mkdirSync(snapshotDirectory, { recursive: true, mode: 0o700 });
     const target = join(snapshotDirectory, `${sessionID}.json`);
     const temporary = join(snapshotDirectory, `.${sessionID}.${process.pid}.tmp`);
-    const record = { sessionID, sessionFile, state, recordedAt: Date.now() / 1000, pid: process.pid };
+    const record = { sessionID, sessionFile, state, recordedAt: Date.now() / 1000,
+      startedAt, endedAt, pid: process.pid };
     writeFileSync(temporary, JSON.stringify(record) + "\n", { mode: 0o600 });
     renameSync(temporary, target);
   }
@@ -28,6 +31,8 @@ export default function (pi: ExtensionAPI) {
     if (heartbeat) clearInterval(heartbeat);
     state = "unknown";
     lastReason = undefined;
+    startedAt = undefined;
+    endedAt = undefined;
     heartbeat = setInterval(() => {
       if (state === "working" || state === "waiting") save(ctx);
     }, 10_000);
@@ -35,6 +40,8 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_start", (_event, ctx) => {
     state = "working";
     lastReason = undefined;
+    startedAt = Date.now() / 1000;
+    endedAt = undefined;
     save(ctx);
   });
   pi.on("agent_end", (event) => {
@@ -51,6 +58,7 @@ export default function (pi: ExtensionAPI) {
   });
   pi.on("agent_settled", (_event, ctx) => {
     state = lastReason === "error" ? "failed" : lastReason === "aborted" ? "interrupted" : "completed";
+    endedAt = Date.now() / 1000;
     save(ctx);
   });
   pi.on("session_shutdown", (_event, ctx) => {

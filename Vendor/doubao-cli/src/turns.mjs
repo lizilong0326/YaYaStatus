@@ -27,6 +27,12 @@ const ordered = messages => messages.slice().sort((a, b) => {
   const right = BigInt(b.index_in_conv || b.index_in_thread || b.message_id || 0);
   return left < right ? -1 : left > right ? 1 : 0;
 });
+const unixSeconds = value => {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return null;
+  const seconds = number > 10_000_000_000 ? number / 1000 : number;
+  return seconds > 1_577_836_800 && seconds < 4_102_444_800 ? seconds : null;
+};
 export function messageBlocks(message) {
   const blocks = message.content_blocks_v2 || message.content_block || parse(message.content);
   return Array.isArray(blocks) ? blocks : [];
@@ -116,8 +122,13 @@ export function summarizeTurn(conversationId, root, messages, nodes, receipt = {
   if (pending.length && !['failed', 'cancelled'].includes(status)) status = 'waiting_input';
   if (['cancelled', 'failed'].includes(status)) pending = [];
   const reply = status === 'completed' ? { role: 'assistant', text: messageText(latest), messageId: latest?.message_id } : null;
+  const startedAt = unixSeconds(root.create_time);
+  const terminal = ['completed', 'failed', 'cancelled'].includes(status);
+  const endTimes = terminal ? [...runMessages, ...nodes.flatMap(node => node.messages)]
+    .map(message => unixSeconds(message.update_time || message.create_time)).filter(time => time !== null) : [];
+  const endedAt = endTimes.length ? Math.max(...endTimes) : null;
   return { conversationId, runId: String(root.message_id), localMessageId: root.local_message_id || receipt.localMessageId,
-    status, reply, artifacts: artifacts([...runMessages, ...nodes.flatMap(n => n.messages)]), tasks, pending,
+    status, startedAt, endedAt, reply, artifacts: artifacts([...runMessages, ...nodes.flatMap(n => n.messages)]), tasks, pending,
     ...(status !== 'completed' && latest ? { progress: messageText(latest) } : {}) };
 }
 

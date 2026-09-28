@@ -6,9 +6,11 @@ private struct DeepSeekTabSnapshot: Decodable, Sendable {
     let title: String
     let state: MonitoredTaskState
     let updatedAt: Date
+    let startedAt: Date?
+    let endedAt: Date?
 
     enum CodingKeys: String, CodingKey {
-        case tabID, conversationID, title, state, updatedAt
+        case tabID, conversationID, title, state, updatedAt, startedAt, endedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -18,6 +20,8 @@ private struct DeepSeekTabSnapshot: Decodable, Sendable {
         title = try values.decode(String.self, forKey: .title)
         state = try values.decode(MonitoredTaskState.self, forKey: .state)
         updatedAt = Date(timeIntervalSince1970: try values.decode(Double.self, forKey: .updatedAt))
+        startedAt = try values.decodeIfPresent(Double.self, forKey: .startedAt).map(Date.init(timeIntervalSince1970:))
+        endedAt = try values.decodeIfPresent(Double.self, forKey: .endedAt).map(Date.init(timeIntervalSince1970:))
     }
 }
 
@@ -53,6 +57,8 @@ private actor DeepSeekTabReader {
                 title: String(tab.title.prefix(100)),
                 state: tab.state,
                 updatedAt: tab.updatedAt,
+                startedAt: tab.startedAt,
+                endedAt: tab.endedAt,
                 openURL: URL(string: "https://chat.deepseek.com/a/chat/s/\(tab.conversationID)"),
                 openScope: .exactTask
             )

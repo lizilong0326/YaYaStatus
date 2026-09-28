@@ -60,8 +60,24 @@ struct MonitoredTask: Identifiable, Equatable, Sendable {
     let title: String
     let state: MonitoredTaskState
     let updatedAt: Date
+    let startedAt: Date?
+    let endedAt: Date?
     let openURL: URL?
     let openScope: TaskOpenScope
+
+    init(source: TaskSource, sourceTaskID: String, title: String, state: MonitoredTaskState,
+         updatedAt: Date, startedAt: Date? = nil, endedAt: Date? = nil,
+         openURL: URL?, openScope: TaskOpenScope) {
+        self.source = source
+        self.sourceTaskID = sourceTaskID
+        self.title = title
+        self.state = state
+        self.updatedAt = updatedAt
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.openURL = openURL
+        self.openScope = openScope
+    }
 
     var id: String { "\(source.rawValue):\(sourceTaskID)" }
     var displayID: String { "\(id):\(state.rawValue)" }
@@ -112,6 +128,7 @@ final class TaskCollectionStore: ObservableObject {
             return MonitoredTask(
                 source: task.source, sourceTaskID: task.sourceTaskID, title: task.title,
                 state: .unknown, updatedAt: task.updatedAt,
+                startedAt: task.startedAt, endedAt: task.endedAt,
                 openURL: task.openURL, openScope: task.openScope
             )
         }

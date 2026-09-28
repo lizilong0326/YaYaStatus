@@ -1,5 +1,11 @@
 import Foundation
 
+private struct DoubaoRunStatus: Sendable {
+    let state: MonitoredTaskState
+    let startedAt: Date?
+    let endedAt: Date?
+}
+
 private actor DoubaoWorkReader {
     private let scriptURL: URL?
     private let nodeURL: URL?
@@ -37,16 +43,23 @@ private actor DoubaoWorkReader {
         return sessions
     }
 
-    func state(for id: String) throws -> MonitoredTaskState {
+    func status(for id: String) throws -> DoubaoRunStatus {
         let object = try dictionary(from: runCLI(["sessions", "status", id]))
+        let state: MonitoredTaskState
         switch object["status"] as? String {
-        case "running": return .working
-        case "waiting_input": return .waiting
-        case "completed": return .completed
-        case "failed": return .failed
-        case "cancelled": return .interrupted
+        case "running": state = .working
+        case "waiting_input": state = .waiting
+        case "completed": state = .completed
+        case "failed": state = .failed
+        case "cancelled": state = .interrupted
         default: throw error("豆包任务状态格式不兼容")
         }
+        func date(_ key: String) -> Date? {
+            guard let seconds = (object[key] as? NSNumber)?.doubleValue,
+                  seconds > 1_577_836_800, seconds < 4_102_444_800 else { return nil }
+            return Date(timeIntervalSince1970: seconds)
+        }
+        return DoubaoRunStatus(state: state, startedAt: date("startedAt"), endedAt: date("endedAt"))
     }
 
     private func runCLI(_ arguments: [String], allowNonZero: Bool = false) throws -> Data {
@@ -160,7 +173,8 @@ final class DoubaoWorkStatusStore {
                 return monitoredTask(
                     for: session,
                     state: changed ? ((forceStatusCheck || index < 10) ? .checking : .unknown) : (old?.state ?? .unknown),
-                    previous: old
+                    previous: old,
+                    preservePreviousTiming: !changed
                 )
             }
             collection.replaceTasks(from: .doubaoWork, with: tasks)
@@ -185,14 +199,16 @@ final class DoubaoWorkStatusStore {
                 ))
                 guard shouldCheck else { continue }
                 do {
-                    let state = try await reader.state(for: session.id)
+                    let status = try await reader.status(for: session.id)
                     lastStatusCheck[session.id] = .now
-                    tasks[index] = monitoredTask(for: session, state: state, previous: old)
+                    tasks[index] = monitoredTask(for: session, state: status.state, previous: old,
+                                                 timing: status, preservePreviousTiming: !changed)
                 } catch {
                     statusFailures += 1
                     let recent = lastStatusCheck[session.id].map { Date().timeIntervalSince($0) < 30 } ?? false
                     if tasks[index].state == .checking || (!recent && (tasks[index].state == .working || tasks[index].state == .waiting)) {
-                        tasks[index] = monitoredTask(for: session, state: .unknown, previous: old)
+                        tasks[index] = monitoredTask(for: session, state: .unknown, previous: old,
+                                                     preservePreviousTiming: !changed)
                     }
                 }
             }
@@ -218,7 +234,9 @@ final class DoubaoWorkStatusStore {
     private func monitoredTask(
         for session: (id: String, title: String, updatedAt: Date),
         state: MonitoredTaskState,
-        previous: MonitoredTask?
+        previous: MonitoredTask?,
+        timing: DoubaoRunStatus? = nil,
+        preservePreviousTiming: Bool = true
     ) -> MonitoredTask {
         var link = URLComponents()
         link.scheme = "doubaowork"
@@ -231,6 +249,9 @@ final class DoubaoWorkStatusStore {
             title: session.title,
             state: state,
             updatedAt: max(session.updatedAt, previous?.updatedAt ?? .distantPast),
+            startedAt: timing?.startedAt ?? (preservePreviousTiming ? previous?.startedAt : nil),
+            endedAt: state == .working || state == .waiting ? nil :
+                (timing?.endedAt ?? (preservePreviousTiming ? previous?.endedAt : nil)),
             openURL: link.url,
             openScope: link.url == nil ? .unavailable : .exactTask
         )
@@ -245,6 +266,8 @@ final class DoubaoWorkStatusStore {
                 title: task.title,
                 state: task.state == .working || task.state == .waiting ? .unknown : task.state,
                 updatedAt: task.updatedAt,
+                startedAt: task.startedAt,
+                endedAt: task.endedAt,
                 openURL: task.openURL,
                 openScope: task.openScope
             )

@@ -327,8 +327,15 @@ struct StatusPanelView: View {
                             .foregroundStyle(color(for: task))
                         Text("·")
                             .foregroundStyle(Palette.secondary)
-                        Text(task.updatedAt, style: .relative)
-                            .foregroundStyle(Palette.secondary)
+                        if task.state == .working || task.state == .waiting {
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                Text(taskTimeLabel(for: task, now: context.date))
+                                    .foregroundStyle(Palette.secondary)
+                            }
+                        } else {
+                            Text(taskTimeLabel(for: task, now: .now))
+                                .foregroundStyle(Palette.secondary)
+                        }
                     }
                     .font(.system(size: 10))
                 }
@@ -378,6 +385,37 @@ struct StatusPanelView: View {
         case .unavailable: return "读取中断"
         case .connected, .partial: return "状态未确认"
         }
+    }
+
+    private func taskTimeLabel(for task: MonitoredTask, now: Date) -> String {
+        if task.state == .working || task.state == .waiting {
+            guard let startedAt = task.startedAt, startedAt <= now else { return "运行时长待确认" }
+            let seconds = Int(now.timeIntervalSince(startedAt))
+            let days = seconds / 86_400
+            let hours = (seconds % 86_400) / 3_600
+            let minutes = (seconds % 3_600) / 60
+            let remainingSeconds = seconds % 60
+            if days > 0 { return String(format: "已运行 %d天 %02d:%02d:%02d", days, hours, minutes, remainingSeconds) }
+            return String(format: "已运行 %02d:%02d:%02d", hours, minutes, remainingSeconds)
+        }
+        if task.state == .completed || task.state == .ended
+            || task.state == .interrupted || task.state == .failed {
+            guard let endedAt = task.endedAt else { return "结束时间未记录" }
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "zh_CN")
+            if Calendar.current.isDateInToday(endedAt) {
+                formatter.dateFormat = "HH:mm"
+                return "结束于 今天 \(formatter.string(from: endedAt))"
+            }
+            if Calendar.current.isDateInYesterday(endedAt) {
+                formatter.dateFormat = "HH:mm"
+                return "结束于 昨天 \(formatter.string(from: endedAt))"
+            }
+            formatter.dateFormat = Calendar.current.component(.year, from: endedAt) == Calendar.current.component(.year, from: now)
+                ? "M月d日 HH:mm" : "yyyy年M月d日 HH:mm"
+            return "结束于 \(formatter.string(from: endedAt))"
+        }
+        return task.state == .sessionOnly ? "无任务时间" : "任务时间未确认"
     }
 
     private func color(for task: MonitoredTask) -> Color {

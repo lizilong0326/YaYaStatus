@@ -8,6 +8,12 @@ private struct KimiConversation: Sendable {
     let updatedAt: Date
 }
 
+private struct KimiRuntimeTiming {
+    var state: MonitoredTaskState = .unknown
+    var startedAt: Date?
+    var endedAt: Date?
+}
+
 private actor KimiWorkReader {
     private let databaseURL: URL
     private let runtimeRoot: URL
@@ -26,13 +32,15 @@ private actor KimiWorkReader {
         let appURL = URL(fileURLWithPath: "/Applications/Kimi.app", isDirectory: true)
         let canOpenApp = FileManager.default.fileExists(atPath: appURL.path)
         return rows.map { conversation in
-            let status = runtimeState(for: conversation.recordsPath)
+            let timing = runtimeState(for: conversation.recordsPath)
             return MonitoredTask(
                 source: .kimiWork,
                 sourceTaskID: conversation.key,
                 title: conversation.title,
-                state: status,
+                state: timing.state,
                 updatedAt: conversation.updatedAt,
+                startedAt: timing.startedAt,
+                endedAt: timing.endedAt,
                 openURL: canOpenApp ? appURL : nil,
                 openScope: canOpenApp ? .application : .unavailable
             )
@@ -90,43 +98,54 @@ private actor KimiWorkReader {
         return rows
     }
 
-    private func runtimeState(for rawPath: String?) -> MonitoredTaskState {
-        guard let rawPath else { return .unknown }
+    private func runtimeState(for rawPath: String?) -> KimiRuntimeTiming {
+        guard let rawPath else { return KimiRuntimeTiming() }
         let path = URL(fileURLWithPath: rawPath).standardizedFileURL
         guard path.path.hasPrefix(runtimeRoot.standardizedFileURL.path + "/"),
               path.lastPathComponent == "wire.jsonl",
-              let handle = try? FileHandle(forReadingFrom: path) else { return .unknown }
+              let handle = try? FileHandle(forReadingFrom: path) else { return KimiRuntimeTiming() }
         defer { try? handle.close() }
-        guard let fileSize = try? handle.seekToEnd() else { return .unknown }
+        guard let fileSize = try? handle.seekToEnd() else { return KimiRuntimeTiming() }
         let length: UInt64 = 512 * 1024
         let offset = fileSize > length ? fileSize - length : 0
         try? handle.seek(toOffset: offset)
         guard let data = try? handle.read(upToCount: Int(length)),
-              let text = String(data: data, encoding: .utf8) else { return .unknown }
+              let text = String(data: data, encoding: .utf8) else { return KimiRuntimeTiming() }
         var lines = text.split(separator: "\n", omittingEmptySubsequences: true)
         if offset > 0, !lines.isEmpty { lines.removeFirst() }
-        var state: MonitoredTaskState = .unknown
+        var timing = KimiRuntimeTiming()
         for line in lines {
             guard let bytes = line.data(using: .utf8),
                   let record = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
                   let type = record["type"] as? String else { continue }
             if type == "turn.prompt" {
-                state = .working
+                timing.state = .working
+                timing.startedAt = (record["time"] as? NSNumber).map {
+                    Date(timeIntervalSince1970: $0.doubleValue / 1_000)
+                }
+                timing.endedAt = nil
             } else if type == "context.append_loop_event",
                       let event = record["event"] as? [String: Any],
                       event["type"] as? String == "step.end" {
                 switch event["finishReason"] as? String {
-                case "end_turn": state = .completed
-                case "tool_use": state = .working
+                case "end_turn":
+                    timing.state = .completed
+                    timing.endedAt = (record["time"] as? NSNumber).map {
+                        Date(timeIntervalSince1970: $0.doubleValue / 1_000)
+                    }
+                case "tool_use": timing.state = .working
                 default: break
                 }
             }
         }
-        if state == .working {
+        if timing.state == .working {
             let modified = (try? path.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            guard let modified, Date().timeIntervalSince(modified) < 3 * 60 else { return .unknown }
+            guard let modified, Date().timeIntervalSince(modified) < 3 * 60 else {
+                timing.state = .unknown
+                return timing
+            }
         }
-        return state
+        return timing
     }
 }
 

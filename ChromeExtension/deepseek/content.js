@@ -3,6 +3,8 @@
   const stopLabel = /停止生成|停止回答|停止响应|Stop generating|Stop response/i;
   let conversationID = null;
   let sawWorking = false;
+  let startedAt = null;
+  let endedAt = null;
   let missingSince = 0;
   let lastFingerprint = "";
   let lastSent = 0;
@@ -32,6 +34,8 @@
       if (conversationID) chrome.runtime.sendMessage({ kind: "close" });
       conversationID = nextID;
       sawWorking = false;
+      startedAt = null;
+      endedAt = null;
       missingSince = 0;
       lastFingerprint = "";
     }
@@ -40,20 +44,23 @@
     const running = hasVisibleStopControl();
     let state = "unknown";
     if (running) {
+      if (!sawWorking || endedAt !== null) startedAt = Date.now() / 1000;
       sawWorking = true;
+      endedAt = null;
       missingSince = 0;
       state = "working";
     } else if (sawWorking) {
       if (!missingSince) missingSince = Date.now();
       state = Date.now() - missingSince >= 1500 ? "ended" : "working";
+      if (state === "ended") endedAt = missingSince / 1000;
     }
 
     const title = currentTitle(conversationID);
-    const fingerprint = `${conversationID}:${title}:${state}`;
+    const fingerprint = `${conversationID}:${title}:${state}:${startedAt}:${endedAt}`;
     if (fingerprint !== lastFingerprint || Date.now() - lastSent > 10000) {
       lastFingerprint = fingerprint;
       lastSent = Date.now();
-      chrome.runtime.sendMessage({ kind: "snapshot", conversationID, title, state });
+      chrome.runtime.sendMessage({ kind: "snapshot", conversationID, title, state, startedAt, endedAt });
     }
   }
 

@@ -7,6 +7,8 @@ private struct PiSessionSummary: Sendable {
     let cwd: String
     let title: String
     let updatedAt: Date
+    let lastUserAt: Date?
+    let lastAssistantAt: Date?
     let finalReason: String?
     let lastRole: String?
     let file: URL
@@ -17,10 +19,12 @@ private struct PiHookSnapshot: Decodable, Sendable {
     let sessionFile: String
     let state: MonitoredTaskState
     let recordedAt: Date
+    let startedAt: Date?
+    let endedAt: Date?
     let pid: Int32
 
     enum CodingKeys: String, CodingKey {
-        case sessionID, sessionFile, state, recordedAt, pid
+        case sessionID, sessionFile, state, recordedAt, startedAt, endedAt, pid
     }
 
     init(from decoder: Decoder) throws {
@@ -29,6 +33,8 @@ private struct PiHookSnapshot: Decodable, Sendable {
         sessionFile = try values.decode(String.self, forKey: .sessionFile)
         state = try values.decode(MonitoredTaskState.self, forKey: .state)
         recordedAt = Date(timeIntervalSince1970: try values.decode(Double.self, forKey: .recordedAt))
+        startedAt = try values.decodeIfPresent(Double.self, forKey: .startedAt).map(Date.init(timeIntervalSince1970:))
+        endedAt = try values.decodeIfPresent(Double.self, forKey: .endedAt).map(Date.init(timeIntervalSince1970:))
         pid = try values.decode(Int32.self, forKey: .pid)
     }
 }
@@ -91,6 +97,8 @@ private actor PiAgentReader {
         var name: String?
         var lastPrompt: String?
         var lastRole: String?
+        var lastUserAt: Date?
+        var lastAssistantAt: Date?
         var finalReason: String?
         var updatedAt = modifiedAt
         for line in data.split(separator: 10) where line.count < 2_000_000 {
@@ -114,6 +122,8 @@ private actor PiAgentReader {
                 if role == "assistant" { finalReason = message["stopReason"] as? String }
                 if let timestamp = message["timestamp"] as? Double {
                     updatedAt = Date(timeIntervalSince1970: timestamp / 1_000)
+                    if role == "user" { lastUserAt = updatedAt }
+                    if role == "assistant" { lastAssistantAt = updatedAt }
                 }
             }
         }
@@ -134,6 +144,7 @@ private actor PiAgentReader {
         }
         return PiSessionSummary(
             id: sessionID, cwd: cwd, title: title, updatedAt: updatedAt,
+            lastUserAt: lastUserAt, lastAssistantAt: lastAssistantAt,
             finalReason: finalReason, lastRole: lastRole, file: file
         )
     }
@@ -199,6 +210,11 @@ final class PiAgentStatusStore {
                     source: .piAgent, sourceTaskID: session.id,
                     title: session.title, state: state,
                     updatedAt: max(session.updatedAt, hook?.recordedAt ?? .distantPast),
+                    startedAt: hook?.startedAt ?? session.lastUserAt,
+                    endedAt: hook?.endedAt ?? (
+                        state == .completed || state == .interrupted || state == .failed
+                            ? session.lastAssistantAt : nil
+                    ),
                     openURL: canOpen ? components.url : nil,
                     openScope: canOpen ? .application : .unavailable
                 )

@@ -97,9 +97,28 @@ struct CodexTaskSummary: Codable, Identifiable, Equatable, Sendable {
     let state: CodexTaskState
     let updatedAt: Date
     let source: String?
+    let startedAt: Date?
+    let endedAt: Date?
+
+    init(id: String, title: String, state: CodexTaskState, updatedAt: Date,
+         source: String?, startedAt: Date? = nil, endedAt: Date? = nil) {
+        self.id = id
+        self.title = title
+        self.state = state
+        self.updatedAt = updatedAt
+        self.source = source
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+    }
 
     func withState(_ state: CodexTaskState) -> CodexTaskSummary {
-        CodexTaskSummary(id: id, title: title, state: state, updatedAt: updatedAt, source: source)
+        CodexTaskSummary(id: id, title: title, state: state, updatedAt: updatedAt,
+                         source: source, startedAt: startedAt, endedAt: endedAt)
+    }
+
+    func withRuntime(_ runtime: CodexTaskRuntimeRecord) -> CodexTaskSummary {
+        CodexTaskSummary(id: id, title: title, state: runtime.taskState(), updatedAt: updatedAt,
+                         source: source, startedAt: runtime.startedAt, endedAt: runtime.completedAt)
     }
 
     var deepLink: URL? {
