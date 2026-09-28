@@ -118,10 +118,17 @@ struct StatusPanelView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 6) {
-            Image(systemName: "square.stack.3d.up.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(readableGreen)
-                .frame(width: 19, height: 19)
+            if let mark = BrandIcon.mark {
+                Image(nsImage: mark)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 19, height: 19)
+            } else {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(readableGreen)
+                    .frame(width: 19, height: 19)
+            }
             Text("丫丫状态")
                 .font(.system(size: 8.5, weight: .semibold))
                 .tracking(0.4)
@@ -209,9 +216,16 @@ struct StatusPanelView: View {
                                       design: .rounded))
                         .foregroundStyle(Palette.primary)
                 } else {
-                    Image(systemName: "square.stack.3d.up")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(Palette.secondary)
+                    if let mark = BrandIcon.mark {
+                        Image(nsImage: mark)
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(width: 22, height: 22)
+                    } else {
+                        Image(systemName: "square.stack.3d.up")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(Palette.secondary)
+                    }
                 }
                 if failedSourceCount > 0 {
                     Circle()

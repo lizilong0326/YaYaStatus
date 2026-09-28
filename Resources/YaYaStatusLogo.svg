@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>丫丫状态</title>
+  <rect x="30" y="30" width="964" height="964" rx="220" fill="#121c1b"/>
+  <rect x="65" y="65" width="894" height="894" rx="188" fill="none" stroke="#53776a" stroke-opacity=".49" stroke-width="5"/>
+  <path d="M294 298 512 516 730 298M512 516v236" fill="none" stroke="#41dc8b" stroke-width="106" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="730" cy="298" r="69" fill="#ff994c"/>
+</svg>
