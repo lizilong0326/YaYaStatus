@@ -33,11 +33,27 @@ struct StatusPanelView: View {
         collection.activeTasks.count
     }
 
+    private var recentFinishedTasks: [MonitoredTask] {
+        collection.tasks.filter { task in
+            switch task.state {
+            case .completed, .ended, .interrupted, .failed: true
+            default: false
+            }
+        }
+        .sorted { lhs, rhs in
+            let lhsEnd = lhs.endedAt ?? lhs.updatedAt
+            let rhsEnd = rhs.endedAt ?? rhs.updatedAt
+            return lhsEnd == rhsEnd ? lhs.id < rhs.id : lhsEnd > rhsEnd
+        }
+    }
+
     private var panelHeight: CGFloat {
         if isCollapsed { return 64 }
         if showingSettings { return 560 }
-        if activeTaskCount == 0 { return 220 }
-        return min(560, max(180, 112 + CGFloat(activeTaskCount) * 56))
+        let finishedCount = recentFinishedTasks.count
+        if activeTaskCount == 0 && finishedCount == 0 { return 140 }
+        let visibleRows = min(6, activeTaskCount + finishedCount)
+        return min(390, max(110, 70 + CGFloat(visibleRows) * 43 + (finishedCount > 0 ? 21 : 0)))
     }
 
     private var panelSize: NSSize {
@@ -78,7 +94,7 @@ struct StatusPanelView: View {
                     } else {
                         header
                         taskContent
-                            .padding(.top, 16)
+                            .padding(.top, 8)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -110,6 +126,9 @@ struct StatusPanelView: View {
                 .font(.system(size: 8.5, weight: .semibold))
                 .tracking(0.4)
                 .foregroundStyle(Palette.secondary)
+            Text("\(activeTaskCount) 个进行中")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(activeTaskCount == 0 ? Palette.secondary : readableGreen)
             Spacer()
             appearanceButton
             collapseButton
@@ -356,23 +375,22 @@ struct StatusPanelView: View {
     }
 
     private var taskContent: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Text("\(activeTaskCount) 个进行中")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(activeTaskCount == 0 ? Palette.secondary : readableGreen)
-            }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 7) {
-                    ForEach(collection.activeTasks, id: \.displayID) { task in taskRow(task) }
-                    if collection.activeTasks.isEmpty {
-                        emptyState
-                    }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 5) {
+                ForEach(collection.activeTasks, id: \.displayID) { task in taskRow(task) }
+                if !recentFinishedTasks.isEmpty {
+                    Text("最近结束")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Palette.secondary)
+                        .padding(.top, activeTaskCount > 0 ? 7 : 0)
+                        .padding(.bottom, 1)
+                    ForEach(recentFinishedTasks, id: \.displayID) { task in taskRow(task) }
                 }
-                .padding(.vertical, 1)
+                if collection.activeTasks.isEmpty && recentFinishedTasks.isEmpty { emptyState }
             }
-            .scrollIndicators(.hidden)
+            .padding(.vertical, 1)
         }
+        .scrollIndicators(.hidden)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -380,48 +398,45 @@ struct StatusPanelView: View {
         Button {
             if let link = task.openURL { NSWorkspace.shared.open(link) }
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: 7) {
                 Circle()
                     .fill(color(for: task))
-                    .frame(width: 7, height: 7)
-                    .frame(width: 18)
-                VStack(alignment: .leading, spacing: 4) {
+                    .frame(width: 6, height: 6)
+                    .frame(width: 11)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(task.title)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(Palette.primary)
                         .lineLimit(1)
-                    HStack(spacing: 7) {
+                    HStack(spacing: 4) {
                         Text("\(task.source.label) · \(stateLabel(for: task))")
                             .foregroundStyle(color(for: task))
-                        Text("·")
-                            .foregroundStyle(Palette.secondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 2)
                         if task.state == .working || task.state == .waiting {
                             TimelineView(.periodic(from: .now, by: 1)) { context in
                                 Text(taskTimeLabel(for: task, now: context.date))
                                     .foregroundStyle(Palette.secondary)
+                                    .lineLimit(1)
                             }
                         } else {
                             Text(taskTimeLabel(for: task, now: .now))
                                 .foregroundStyle(Palette.secondary)
+                                .lineLimit(1)
                         }
                     }
-                    .font(.system(size: 10))
+                    .font(.system(size: 9.5))
                 }
-                Spacer(minLength: 0)
-                if task.openScope == .application {
-                    Text(task.source == .piAgent ? "打开工作区" : "打开应用")
-                        .font(.system(size: 9))
-                        .foregroundStyle(Palette.secondary)
-                } else if task.openScope == .exactTask {
+                if task.openURL != nil {
                     Image(systemName: "arrow.up.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(Palette.secondary)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Palette.surface))
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Palette.surface))
         }
         .buttonStyle(.plain)
         .disabled(task.openURL == nil)
@@ -433,16 +448,16 @@ struct StatusPanelView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 7) {
+        VStack(spacing: 5) {
             Image(systemName: "tray")
-                .font(.system(size: 24, weight: .light))
+                .font(.system(size: 19, weight: .light))
                 .foregroundStyle(Palette.secondary)
             Text(emptyTitle)
-                .font(.system(size: 12))
+                .font(.system(size: 11))
                 .foregroundStyle(Palette.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 42)
+        .padding(.vertical, 24)
     }
 
     private func stateLabel(for task: MonitoredTask) -> String {
