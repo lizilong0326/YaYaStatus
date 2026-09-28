@@ -33,8 +33,8 @@ SOFTWARE.
 
 The optional DoubaoWork connector bundles `doubao-cli` source at commit
 `a14c8bd22a6354ca50d46bbde108387ed2a0bfcc`.
-This copy adds a `Default` profile fallback and exposes the source update time
-in session list output.
+This copy adds a `Default` profile fallback, exposes source update times, and
+merges and sorts session snapshots by their latest update time.
 
 Source: https://github.com/Fullstop000/doubao-cli
 

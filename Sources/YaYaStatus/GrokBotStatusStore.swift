@@ -123,10 +123,16 @@ final class GrokBotStatusStore {
                 state: .limited,
                 detail: tasks.isEmpty
                     ? "尚未读到 Grok Bot 会话快照"
-                    : "只读 Bot 会话；无法判断云端任务状态；点击打开应用"
+                    : "只读 Bot 会话；无法判断云端任务状态；点击打开应用",
+                observedAt: .now
             ))
         } catch {
-            collection.setConnection(SourceConnection(source: .grokBot, state: .unavailable, detail: error.localizedDescription))
+            collection.setConnection(SourceConnection(
+                source: .grokBot,
+                state: .unavailable,
+                detail: error.localizedDescription,
+                observedAt: collection.connections[.grokBot]?.observedAt
+            ))
         }
     }
 }

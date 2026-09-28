@@ -54,6 +54,7 @@ struct MonitoredTask: Identifiable, Equatable, Sendable {
     let openScope: TaskOpenScope
 
     var id: String { "\(source.rawValue):\(sourceTaskID)" }
+    var displayID: String { "\(id):\(state.rawValue)" }
 }
 
 enum SourceConnectionState: String, Sendable {
@@ -66,6 +67,14 @@ struct SourceConnection: Equatable, Sendable {
     let source: TaskSource
     let state: SourceConnectionState
     let detail: String
+    let observedAt: Date?
+
+    init(source: TaskSource, state: SourceConnectionState, detail: String, observedAt: Date? = nil) {
+        self.source = source
+        self.state = state
+        self.detail = detail
+        self.observedAt = observedAt
+    }
 }
 
 @MainActor

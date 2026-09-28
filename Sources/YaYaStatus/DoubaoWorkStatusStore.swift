@@ -103,6 +103,8 @@ final class DoubaoWorkStatusStore {
     private let reader = DoubaoWorkReader()
     private var pollTask: Task<Void, Never>?
     private var lastStatusCheck: [String: Date] = [:]
+    private var isRefreshing = false
+    private var pendingForceRefresh = false
 
     init(collection: TaskCollectionStore) { self.collection = collection }
 
@@ -111,7 +113,10 @@ final class DoubaoWorkStatusStore {
         pollTask = Task { [weak self] in
             while let self, !Task.isCancelled {
                 await self.refresh()
-                try? await Task.sleep(nanoseconds: 30 * 1_000_000_000)
+                let hasActive = self.collection.tasks.contains {
+                    $0.source == .doubaoWork && ($0.state == .working || $0.state == .waiting)
+                }
+                try? await Task.sleep(nanoseconds: (hasActive ? 2 : 5) * 1_000_000_000)
             }
         }
     }
@@ -121,59 +126,98 @@ final class DoubaoWorkStatusStore {
         pollTask = nil
     }
 
-    func refresh() async {
+    func refresh(forceStatusCheck: Bool = false) async {
+        if isRefreshing {
+            pendingForceRefresh = pendingForceRefresh || forceStatusCheck
+            return
+        }
+        isRefreshing = true
+        defer {
+            isRefreshing = false
+            if pendingForceRefresh {
+                pendingForceRefresh = false
+                Task { [weak self] in await self?.refresh(forceStatusCheck: true) }
+            }
+        }
         do {
             guard try await reader.readiness() else {
                 demoteActiveTasks()
                 collection.setConnection(SourceConnection(
                     source: .doubaoWork,
                     state: .limited,
-                    detail: "当前客户端未开启 CDP；保留正在运行的豆包任务后再重启启用"
+                    detail: "当前客户端未开启 CDP；需在任务结束后重启豆包工作",
+                    observedAt: collection.connections[.doubaoWork]?.observedAt
                 ))
                 return
             }
             let sessions = try await reader.sessions(limit: 10)
             let previous = Dictionary(uniqueKeysWithValues: collection.tasks
                 .filter { $0.source == .doubaoWork }.map { ($0.sourceTaskID, $0) })
-            var tasks: [MonitoredTask] = []
-            for (index, session) in sessions.enumerated() {
+            var tasks = sessions.map { session in
                 let old = previous[session.id]
-                let wasActive = old?.state == .working || old?.state == .waiting || old?.state == .unknown
-                let lastCheck = lastStatusCheck[session.id] ?? .distantPast
-                let shouldCheck = index < 3 || wasActive || Date().timeIntervalSince(lastCheck) > 5 * 60
-                let state: MonitoredTaskState
-                if shouldCheck {
-                    state = await reader.state(for: session.id)
-                    lastStatusCheck[session.id] = .now
-                } else {
-                    state = old?.state ?? .unknown
-                }
-                let date = max(session.updatedAt, old?.updatedAt ?? .distantPast)
-                var link = URLComponents()
-                link.scheme = "doubaowork"
-                link.host = "doubaoworkapp"
-                link.path = "/open-url"
-                link.queryItems = [URLQueryItem(name: "url", value: "https://www.doubao.com/chat/\(session.id)")]
-                tasks.append(MonitoredTask(
-                    source: .doubaoWork,
-                    sourceTaskID: session.id,
-                    title: session.title,
-                    state: state,
-                    updatedAt: date,
-                    openURL: link.url,
-                    openScope: link.url == nil ? .unavailable : .exactTask
-                ))
+                let changed = old.map { session.updatedAt > $0.updatedAt.addingTimeInterval(0.5) } ?? true
+                return monitoredTask(
+                    for: session,
+                    state: changed ? .unknown : (old?.state ?? .unknown),
+                    previous: old
+                )
             }
             collection.replaceTasks(from: .doubaoWork, with: tasks)
             collection.setConnection(SourceConnection(
                 source: .doubaoWork,
                 state: sessions.isEmpty ? .limited : .connected,
-                detail: sessions.isEmpty ? "CDP 已连接，但暂未读到会话" : "CDP 已连接；读取逐轮任务状态"
+                detail: sessions.isEmpty ? "CDP 已连接，但暂未读到会话" : "会话已同步；正在核对任务状态",
+                observedAt: .now
+            ))
+            for (index, session) in sessions.enumerated() {
+                let old = previous[session.id]
+                let wasActive = old?.state == .working || old?.state == .waiting || old?.state == .unknown
+                let changed = old.map { session.updatedAt > $0.updatedAt.addingTimeInterval(0.5) } ?? true
+                let lastCheck = lastStatusCheck[session.id] ?? .distantPast
+                let shouldCheck = forceStatusCheck || index < 3 || wasActive || changed
+                    || Date().timeIntervalSince(lastCheck) > 5 * 60
+                guard shouldCheck else { continue }
+                let state = await reader.state(for: session.id)
+                lastStatusCheck[session.id] = .now
+                tasks[index] = monitoredTask(for: session, state: state, previous: old)
+                collection.replaceTasks(from: .doubaoWork, with: tasks)
+            }
+            collection.setConnection(SourceConnection(
+                source: .doubaoWork,
+                state: sessions.isEmpty ? .limited : .connected,
+                detail: sessions.isEmpty ? "CDP 已连接，但暂未读到会话" : "CDP 已连接；逐轮任务状态已核对",
+                observedAt: .now
             ))
         } catch {
             demoteActiveTasks()
-            collection.setConnection(SourceConnection(source: .doubaoWork, state: .unavailable, detail: error.localizedDescription))
+            collection.setConnection(SourceConnection(
+                source: .doubaoWork,
+                state: .unavailable,
+                detail: error.localizedDescription,
+                observedAt: collection.connections[.doubaoWork]?.observedAt
+            ))
         }
+    }
+
+    private func monitoredTask(
+        for session: (id: String, title: String, updatedAt: Date),
+        state: MonitoredTaskState,
+        previous: MonitoredTask?
+    ) -> MonitoredTask {
+        var link = URLComponents()
+        link.scheme = "doubaowork"
+        link.host = "doubaoworkapp"
+        link.path = "/open-url"
+        link.queryItems = [URLQueryItem(name: "url", value: "https://www.doubao.com/chat/\(session.id)")]
+        return MonitoredTask(
+            source: .doubaoWork,
+            sourceTaskID: session.id,
+            title: session.title,
+            state: state,
+            updatedAt: max(session.updatedAt, previous?.updatedAt ?? .distantPast),
+            openURL: link.url,
+            openScope: link.url == nil ? .unavailable : .exactTask
+        )
     }
 
     private func demoteActiveTasks() {

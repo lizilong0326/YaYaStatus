@@ -125,6 +125,8 @@ final class CodexStatusStore: ObservableObject {
                     continue
                 }
                 taskError = error.localizedDescription
+                tasks = tasks.map { $0.state == .working ? $0.withState(.unknown) : $0 }
+                publishToCollection()
             }
         }
     }
@@ -169,7 +171,7 @@ final class CodexStatusStore: ObservableObject {
             cachedQuota.freshness = .stale
             quota = cachedQuota
         }
-        tasks = cache.tasks
+        tasks = cache.tasks.map { $0.state == .working ? $0.withState(.unknown) : $0 }
         publishToCollection()
     }
 

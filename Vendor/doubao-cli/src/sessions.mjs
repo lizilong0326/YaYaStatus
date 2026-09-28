@@ -10,10 +10,13 @@ export function sessionsFromSnapshots(rows, uid) {
   const visit = (data) => {
     for (const item of data?.conversations || []) {
       const id = String(item.conversation_id || '');
-      if (/^\d{12,24}$/u.test(id) && !sessions.has(id)) {
+      if (/^\d{12,24}$/u.test(id)) {
         const updatedAt = Number(item.update_time || item.create_time);
-        sessions.set(id, { id, title: item.name || null,
-          updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : null });
+        const timestamp = Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : null;
+        const previous = sessions.get(id);
+        if (!previous || (timestamp || 0) > (previous.updatedAt || 0)) {
+          sessions.set(id, { id, title: item.name || previous?.title || null, updatedAt: timestamp });
+        }
       }
     }
     for (const group of [...(data?.projects || []), ...(data?.devices || [])]) visit(group);
@@ -21,7 +24,7 @@ export function sessionsFromSnapshots(rows, uid) {
   const owned = rows.filter(row => String(row.uid) === String(uid));
   for (const row of owned.filter(row => row.schema?.startsWith('conversation-list-data-overall-'))) visit(row.data);
   for (const row of owned) visit(row.data);
-  return [...sessions.values()];
+  return [...sessions.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 
 export async function conversationSettings(client, id) {

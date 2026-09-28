@@ -156,10 +156,16 @@ final class KimiWorkStatusStore {
             collection.setConnection(SourceConnection(
                 source: .kimiWork,
                 state: .limited,
-                detail: "只读会话状态；点击打开 Kimi 应用"
+                detail: "只读会话状态；点击打开 Kimi 应用",
+                observedAt: .now
             ))
         } catch {
-            collection.setConnection(SourceConnection(source: .kimiWork, state: .unavailable, detail: error.localizedDescription))
+            collection.setConnection(SourceConnection(
+                source: .kimiWork,
+                state: .unavailable,
+                detail: error.localizedDescription,
+                observedAt: collection.connections[.kimiWork]?.observedAt
+            ))
         }
     }
 }

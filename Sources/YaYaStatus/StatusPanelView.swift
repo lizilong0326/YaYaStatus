@@ -32,6 +32,12 @@ struct StatusPanelView: View {
         visibleTasks.filter { $0.state != .working && $0.state != .waiting }
     }
 
+    private var selectedLastSync: Date? {
+        guard let selectedSource else { return nil }
+        return selectedSource == .codex
+            ? store.lastTaskSync : collection.connections[selectedSource]?.observedAt
+    }
+
     private var emptyTitle: String {
         if store.isRefreshing && selectedSource == nil { return "正在读取任务…" }
         if let selectedSource, collection.connections[selectedSource]?.state != .connected {
@@ -122,11 +128,10 @@ struct StatusPanelView: View {
                     providerBadge(.grokBot)
                 }
             }
-            if let selectedSource, let connection = collection.connections[selectedSource],
-               connection.state != .connected {
+            if let selectedSource, let connection = collection.connections[selectedSource] {
                 Text(connection.detail)
                     .font(.system(size: 10))
-                    .foregroundStyle(Palette.orange)
+                    .foregroundStyle(connection.state == .connected ? Palette.secondary : Palette.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
@@ -195,8 +200,11 @@ struct StatusPanelView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Palette.primary)
                 Spacer()
-                if let sync = store.lastTaskSync {
-                    Text(sync, style: .time)
+                if let sync = selectedLastSync {
+                    HStack(spacing: 3) {
+                        Text("上次读取")
+                        Text(sync, style: .relative)
+                    }
                         .font(.system(size: 10))
                         .foregroundStyle(Palette.secondary)
                 }
@@ -212,12 +220,12 @@ struct StatusPanelView: View {
                 LazyVStack(alignment: .leading, spacing: 7) {
                     if !activeTasks.isEmpty {
                         sectionTitle("进行中")
-                        ForEach(activeTasks) { task in taskRow(task) }
+                        ForEach(activeTasks, id: \.displayID) { task in taskRow(task) }
                     }
                     if !recentTasks.isEmpty {
                         sectionTitle(selectedSource == .grokBot ? "最近会话" : (selectedSource == nil ? "最近任务/会话" : "最近任务"))
                             .padding(.top, activeTasks.isEmpty ? 0 : 9)
-                        ForEach(recentTasks) { task in taskRow(task) }
+                        ForEach(recentTasks, id: \.displayID) { task in taskRow(task) }
                     }
                     if visibleTasks.isEmpty {
                         emptyState

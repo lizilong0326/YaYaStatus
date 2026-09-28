@@ -171,12 +171,18 @@ final class WorkBuddyStatusStore {
                 source: .workBuddy,
                 state: hasRecentHook ? .connected : .limited,
                 detail: hasRecentHook ? "会话库与 Hook 均有数据" :
-                    (hookInstalled ? "已安装 Hook；等待下一次真实事件" : "仅读取本机会话")
+                    (hookInstalled ? "已安装 Hook；等待下一次真实事件" : "仅读取本机会话"),
+                observedAt: .now
             ))
             lastError = nil
         } catch {
             lastError = error.localizedDescription
-            collection.setConnection(SourceConnection(source: .workBuddy, state: .unavailable, detail: error.localizedDescription))
+            collection.setConnection(SourceConnection(
+                source: .workBuddy,
+                state: .unavailable,
+                detail: error.localizedDescription,
+                observedAt: collection.connections[.workBuddy]?.observedAt
+            ))
         }
     }
 

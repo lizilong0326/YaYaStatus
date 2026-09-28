@@ -125,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         Task {
             await workBuddyStore.refresh()
             await kimiWorkStore.refresh()
-            await doubaoWorkStore.refresh()
+            await doubaoWorkStore.refresh(forceStatusCheck: true)
             await grokBotStore.refresh()
         }
     }
