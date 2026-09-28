@@ -26,11 +26,18 @@ struct StatusPanelView: View {
     @State private var lastDragTranslation = CGSize.zero
     @State private var lastPanelDragTranslation = CGSize.zero
     @State private var lastOrbDragAt = Date.distantPast
+    @State private var knownTaskStates: [String: MonitoredTaskState]?
+    @State private var finishCue: OrbTaskFinishCue?
+    @State private var showWorkingBeam = false
     @AppStorage("yayastatus-is-dark-mode") private var isDarkMode = true
     @AppStorage("yayastatus-is-collapsed") private var isCollapsed = false
 
     private var activeTaskCount: Int {
         collection.activeTasks.count
+    }
+
+    private var workingTaskCount: Int {
+        collection.activeTasks.filter { $0.state == .working }.count
     }
 
     private var recentFinishedTasks: [MonitoredTask] {
@@ -48,7 +55,7 @@ struct StatusPanelView: View {
     }
 
     private var panelHeight: CGFloat {
-        if isCollapsed { return 64 }
+        if isCollapsed { return StatusOrbMetrics.windowSide }
         if showingSettings { return 560 }
         let finishedCount = recentFinishedTasks.count
         if activeTaskCount == 0 && finishedCount == 0 { return 140 }
@@ -57,7 +64,8 @@ struct StatusPanelView: View {
     }
 
     private var panelSize: NSSize {
-        NSSize(width: isCollapsed ? 64 : (showingSettings ? 390 : 350), height: panelHeight)
+        NSSize(width: isCollapsed ? StatusOrbMetrics.windowSide : (showingSettings ? 390 : 350),
+               height: panelHeight)
     }
 
     private var panelBackground: Color {
@@ -112,8 +120,35 @@ struct StatusPanelView: View {
         }
         .preferredColorScheme(isDarkMode ? .dark : .light)
         .animation(.easeInOut(duration: 0.2), value: isDarkMode)
-        .onAppear { onSizeChange(panelSize) }
+        .onAppear {
+            onSizeChange(panelSize)
+            if knownTaskStates == nil {
+                knownTaskStates = StatusOrbTransition.states(for: collection.tasks)
+            }
+        }
         .onChange(of: panelSize) { onSizeChange($0) }
+        .onChange(of: collection.tasks) { _ in updateFinishCue() }
+        .task(id: workingTaskCount > 0) {
+            showWorkingBeam = false
+            guard workingTaskCount > 0 else { return }
+            try? await Task.sleep(for: .seconds(3))
+            if !Task.isCancelled { showWorkingBeam = true }
+        }
+        .task(id: finishCue?.id) {
+            guard let cue = finishCue else { return }
+            try? await Task.sleep(for: .seconds(8))
+            if !Task.isCancelled && finishCue?.id == cue.id { finishCue = nil }
+        }
+    }
+
+    private func updateFinishCue() {
+        let current = StatusOrbTransition.states(for: collection.tasks)
+        defer { knownTaskStates = current }
+        guard let knownTaskStates else { return }
+        if let newCue = StatusOrbTransition.newFinish(previous: knownTaskStates,
+                                                      current: collection.tasks) {
+            finishCue = newCue
+        }
     }
 
     private var header: some View {
@@ -201,46 +236,16 @@ struct StatusPanelView: View {
             showingSettings = false
             isCollapsed = false
         } label: {
-            ZStack {
-                Circle().fill(panelBackground)
-                Circle().stroke(Palette.border, lineWidth: 1)
-                Circle()
-                    .trim(from: 0, to: activeTaskCount > 0 ? 0.76 : 1)
-                    .stroke(activeTaskCount > 0 ? Palette.orange : Palette.gray.opacity(0.5),
-                            style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                    .padding(5)
-                if activeTaskCount > 0 {
-                    Text(activeTaskCount > 9 ? "9+" : String(activeTaskCount))
-                        .font(.system(size: activeTaskCount > 9 ? 15 : 20, weight: .semibold,
-                                      design: .rounded))
-                        .foregroundStyle(Palette.primary)
-                } else {
-                    if let mark = BrandIcon.mark {
-                        Image(nsImage: mark)
-                            .resizable()
-                            .interpolation(.high)
-                            .frame(width: 22, height: 22)
-                    } else {
-                        Image(systemName: "square.stack.3d.up")
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundStyle(Palette.secondary)
-                    }
-                }
-                if failedSourceCount > 0 {
-                    Circle()
-                        .fill(Palette.red)
-                        .frame(width: 8, height: 8)
-                        .overlay(Circle().stroke(panelBackground, lineWidth: 1.5))
-                        .offset(x: 19, y: -19)
-                }
-            }
-            .frame(width: 60, height: 60)
-            .contentShape(Circle())
+            StatusOrbFace(activeTaskCount: activeTaskCount,
+                          workingTaskCount: workingTaskCount,
+                          showWorkingBeam: showWorkingBeam,
+                          finishCue: finishCue,
+                          hasSourceError: failedSourceCount > 0,
+                          isDarkMode: isDarkMode)
         }
         .buttonStyle(.plain)
-        .help("\(activeTaskCount) 个进行中；点击展开，拖动可移动")
-        .accessibilityLabel("\(activeTaskCount) 个进行中，点击展开丫丫状态")
+        .help(orbStatusLabel + "；点击展开，拖动可移动")
+        .accessibilityLabel(orbStatusLabel + "，点击展开丫丫状态")
         .simultaneousGesture(DragGesture(minimumDistance: 4)
             .onChanged { value in
                 lastOrbDragAt = .now
@@ -253,7 +258,14 @@ struct StatusPanelView: View {
                 lastOrbDragAt = .now
                 lastDragTranslation = .zero
             })
-        .frame(width: 64, height: 64)
+        .frame(width: StatusOrbMetrics.windowSide, height: StatusOrbMetrics.windowSide)
+    }
+
+    private var orbStatusLabel: String {
+        if let finishCue {
+            return "\(finishCue.taskTitle)\(finishCue.outcome.label)，\(activeTaskCount) 个进行中"
+        }
+        return "\(activeTaskCount) 个进行中"
     }
 
     private var settingsHeader: some View {

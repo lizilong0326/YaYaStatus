@@ -65,7 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func installPanel() {
         let size = UserDefaults.standard.bool(forKey: "yayastatus-is-collapsed")
-            ? NSSize(width: 64, height: 64) : NSSize(width: 350, height: 220)
+            ? NSSize(width: StatusOrbMetrics.windowSide, height: StatusOrbMetrics.windowSide)
+            : NSSize(width: 350, height: 220)
         let initialFrame = restoredFrame(size: size)
         panel = FloatingStatusPanel(
             contentRect: initialFrame,
@@ -84,7 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
-        panel.minSize = NSSize(width: 64, height: 64)
+        panel.minSize = NSSize(width: StatusOrbMetrics.windowSide,
+                               height: StatusOrbMetrics.windowSide)
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
@@ -123,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func restoredFrame(size: NSSize) -> NSRect {
         if let value = UserDefaults.standard.string(forKey: Self.savedFrameKey) {
             let frame = NSRectFromString(value)
-            if frame.width >= 60, frame.height >= 60,
+            if frame.width >= 40, frame.height >= 40,
                let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(frame) }) {
                 let area = screen.visibleFrame
                 return NSRect(
