@@ -116,7 +116,7 @@ final class GrokBotStatusStore {
 
     func refresh() async {
         do {
-            let tasks = try await reader.readRecent(limit: 10)
+            let tasks = try await reader.readRecent(limit: TaskCollectionStore.recentTaskLimit)
             collection.replaceTasks(from: .grokBot, with: tasks)
             collection.setConnection(SourceConnection(
                 source: .grokBot,

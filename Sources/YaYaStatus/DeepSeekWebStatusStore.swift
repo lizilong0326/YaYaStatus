@@ -57,7 +57,7 @@ private actor DeepSeekTabReader {
                 openScope: .exactTask
             )
         }.sorted { $0.updatedAt > $1.updatedAt }
-        return (Array(tasks.prefix(10)), hostInstalled)
+        return (Array(tasks.prefix(100)), hostInstalled)
     }
 }
 

@@ -124,7 +124,7 @@ final class CodexStatusStore: ObservableObject {
         }
         for attempt in 0..<2 {
             do {
-                let fetched = try await client.readRecentTasks(limit: 16)
+                let fetched = try await client.readRecentTasks(limit: TaskCollectionStore.recentTaskLimit)
                 if fetched.isEmpty && !tasks.isEmpty {
                     firstEmptyTaskListAt = firstEmptyTaskListAt ?? .now
                     if firstEmptyTaskListAt.map({ Date().timeIntervalSince($0) < 30 }) == true {

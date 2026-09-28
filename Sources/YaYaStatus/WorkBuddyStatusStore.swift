@@ -56,7 +56,7 @@ private actor WorkBuddyReader {
             throw NSError(domain: "WorkBuddyReader", code: 2, userInfo: [NSLocalizedDescriptionKey: "WorkBuddy 会话表格式不兼容"])
         }
         defer { sqlite3_finalize(statement) }
-        sqlite3_bind_int(statement, 1, Int32(min(40, max(1, limit))))
+        sqlite3_bind_int(statement, 1, Int32(min(100, max(1, limit))))
         var result: [WorkBuddySession] = []
         while sqlite3_step(statement) == SQLITE_ROW {
             guard let idText = sqlite3_column_text(statement, 0) else { continue }
@@ -125,7 +125,7 @@ final class WorkBuddyStatusStore {
 
     func refresh() async {
         do {
-            let sessions = try await reader.readSessions(limit: 12)
+            let sessions = try await reader.readSessions(limit: TaskCollectionStore.recentTaskLimit)
             let hooks = await reader.readHookSnapshots()
             let isRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: "com.tencent.workbuddy.mac").isEmpty
             var tasks = sessions.map { session in

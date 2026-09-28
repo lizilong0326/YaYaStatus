@@ -177,7 +177,7 @@ final class PiAgentStatusStore {
 
     func refresh() async {
         do {
-            let (sessions, hooks) = try await reader.readRecent(limit: 12)
+            let (sessions, hooks) = try await reader.readRecent(limit: TaskCollectionStore.recentTaskLimit)
             let fileManager = FileManager.default
             let hasVSCode = fileManager.fileExists(atPath: "/Applications/Visual Studio Code.app")
             let tasks = sessions.map { session in

@@ -17,42 +17,29 @@ struct StatusPanelView: View {
     @ObservedObject var store: CodexStatusStore
     @ObservedObject var collection: TaskCollectionStore
     let onRefresh: () -> Void
-    @State private var selectedSource: TaskSource?
+    @State private var showingSettings = false
 
-    private var visibleTasks: [MonitoredTask] {
-        guard let selectedSource else { return collection.tasks }
-        return collection.tasks.filter { $0.source == selectedSource }
-    }
-
-    private var activeTasks: [MonitoredTask] {
-        visibleTasks.filter { $0.state == .working || $0.state == .waiting }
-    }
-
-    private var recentTasks: [MonitoredTask] {
-        visibleTasks.filter { $0.state != .working && $0.state != .waiting }
-    }
-
-    private var selectedLastSync: Date? {
-        guard let selectedSource else { return nil }
-        return selectedSource == .codex
-            ? store.lastTaskSync : collection.connections[selectedSource]?.observedAt
+    private var activeTaskCount: Int {
+        collection.tasks.filter { $0.state == .working || $0.state == .waiting }.count
     }
 
     private var emptyTitle: String {
-        if store.isRefreshing && selectedSource == nil { return "正在读取任务…" }
-        if let selectedSource, collection.connections[selectedSource]?.state != .connected {
-            return "尚未读取到任务"
-        }
-        return "暂时没有任务"
+        store.isRefreshing ? "正在读取任务…" : "暂时没有任务与会话"
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            providerCard
-                .padding(.top, 19)
-            taskContent
-                .padding(.top, 18)
+            if showingSettings {
+                settingsHeader
+                settingsContent
+                    .padding(.top, 20)
+            } else {
+                header
+                overviewCard
+                    .padding(.top, 19)
+                taskContent
+                    .padding(.top, 18)
+            }
             footer
         }
         .padding(20)
@@ -98,54 +85,30 @@ struct StatusPanelView: View {
             }
             .buttonStyle(.plain)
             .help("刷新全部工作台")
+            Button {
+                showingSettings = true
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.secondary)
+                    .frame(width: 29, height: 29)
+                    .background(Circle().fill(Color.white.opacity(0.06)))
+            }
+            .buttonStyle(.plain)
+            .help("设置与工作台")
         }
     }
 
-    private var providerCard: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack(spacing: 9) {
-                Text("工作台")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Palette.primary)
-                Spacer()
-                Button {
-                    selectedSource = nil
-                } label: {
-                    Text(selectedSource == nil ? "全部来源" : "查看全部")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(selectedSource == nil ? Palette.green : Palette.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 5) {
-                    providerBadge(.codex)
-                    providerBadge(.workBuddy)
-                    providerBadge(.kimiWork)
-                }
-                HStack(spacing: 5) {
-                    providerBadge(.doubaoWork)
-                    providerBadge(.grokBot)
-                    providerBadge(.piAgent)
-                }
-                HStack(spacing: 5) {
-                    providerBadge(.deepSeekWeb)
-                }
-            }
-            if let selectedSource, let connection = collection.connections[selectedSource] {
-                Text(connection.detail)
-                    .font(.system(size: 10))
-                    .foregroundStyle(connection.state == .connected ? Palette.secondary : Palette.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+    private var overviewCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text("\(activeTasks.count) 个进行中")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(activeTasks.isEmpty ? Palette.secondary : Palette.green)
+                Text("\(activeTaskCount) 个进行中")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(activeTaskCount == 0 ? Palette.secondary : Palette.green)
                 Text("·")
                     .foregroundStyle(Palette.secondary)
-                Text("\(visibleTasks.count) 条任务/会话")
-                    .font(.system(size: 12))
+                Text("显示最近 \(collection.tasks.count) / \(TaskCollectionStore.recentTaskLimit) 条")
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Palette.secondary)
                 Spacer()
             }
@@ -169,75 +132,55 @@ struct StatusPanelView: View {
         .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Palette.border, lineWidth: 1))
     }
 
-    private func providerBadge(_ source: TaskSource) -> some View {
-        let connection = collection.connections[source]
-        let state: SourceConnectionState
-        if source == .codex {
-            if store.taskError != nil {
-                let recentlyVerified = store.lastTaskSync.map { Date().timeIntervalSince($0) < 30 } ?? false
-                state = recentlyVerified ? .limited : .unavailable
-            } else {
-                state = store.lastTaskSync == nil ? .limited : .connected
-            }
-        } else {
-            state = connection?.state ?? .limited
-        }
-        return Button {
-            selectedSource = selectedSource == source ? nil : source
-        } label: {
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(state == .connected ? Palette.green : (state == .limited ? Palette.orange : Palette.red))
-                    .frame(width: 5, height: 5)
-                Text(source.label)
-                    .font(.system(size: 10, weight: .medium))
+    private var settingsHeader: some View {
+        HStack(spacing: 11) {
+            Button {
+                showingSettings = false
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Palette.primary)
-                    .lineLimit(1)
+                    .frame(width: 38, height: 38)
+                    .background(RoundedRectangle(cornerRadius: 11).fill(Palette.surface))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(selectedSource == source ? Palette.green.opacity(0.18) : Color.white.opacity(0.07)))
+            .buttonStyle(.plain)
+            .help("返回任务列表")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("设置")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Palette.primary)
+                Text("工作台连接状态")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.secondary)
+            }
+            Spacer()
+            Button(action: onRefresh) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.secondary)
+                    .frame(width: 29, height: 29)
+                    .background(Circle().fill(Color.white.opacity(0.06)))
+            }
+            .buttonStyle(.plain)
+            .help("刷新全部工作台")
         }
-        .buttonStyle(.plain)
-        .help("筛选 \(source.label)；\(source == .codex ? (store.taskError ?? "Codex 任务与额度") : (connection?.detail ?? "正在读取"))")
     }
 
-    private var taskContent: some View {
-        VStack(alignment: .leading, spacing: 9) {
+    private var settingsContent: some View {
+        VStack(alignment: .leading, spacing: 11) {
             HStack {
-                Text(selectedSource == .grokBot ? "Bot 会话" : (selectedSource == nil ? "任务与会话" : "任务"))
-                    .font(.system(size: 13, weight: .semibold))
+                Text("工作台")
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Palette.primary)
                 Spacer()
-                if let sync = selectedLastSync {
-                    HStack(spacing: 3) {
-                        Text("上次读取")
-                        Text(sync, style: .relative)
-                    }
-                        .font(.system(size: 10))
-                        .foregroundStyle(Palette.secondary)
-                }
-            }
-            if selectedSource == nil || selectedSource == .codex, let error = store.taskError {
-                Text(error)
+                Text("\(TaskSource.allCases.count) 个来源")
                     .font(.system(size: 11))
-                    .foregroundStyle(Palette.orange)
-                    .lineLimit(2)
-                    .padding(.bottom, 2)
+                    .foregroundStyle(Palette.secondary)
             }
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 7) {
-                    if !activeTasks.isEmpty {
-                        sectionTitle("进行中")
-                        ForEach(activeTasks, id: \.displayID) { task in taskRow(task) }
-                    }
-                    if !recentTasks.isEmpty {
-                        sectionTitle(selectedSource == .grokBot ? "最近会话" : (selectedSource == nil ? "最近任务/会话" : "最近任务"))
-                            .padding(.top, activeTasks.isEmpty ? 0 : 9)
-                        ForEach(recentTasks, id: \.displayID) { task in taskRow(task) }
-                    }
-                    if visibleTasks.isEmpty {
-                        emptyState
+                LazyVStack(spacing: 8) {
+                    ForEach(TaskSource.allCases, id: \.self) { source in
+                        sourceRow(source)
                     }
                 }
                 .padding(.vertical, 1)
@@ -247,12 +190,86 @@ struct StatusPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func sectionTitle(_ value: String) -> some View {
-        Text(value)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(Palette.secondary)
-            .padding(.leading, 2)
-            .padding(.bottom, 2)
+    private func connectionState(for source: TaskSource) -> SourceConnectionState {
+        let connection = collection.connections[source]
+        if source == .codex {
+            if store.taskError != nil {
+                let recentlyVerified = store.lastTaskSync.map { Date().timeIntervalSince($0) < 30 } ?? false
+                return recentlyVerified ? .limited : .unavailable
+            }
+            return store.lastTaskSync == nil ? .limited : .connected
+        }
+        return connection?.state ?? .limited
+    }
+
+    private func sourceRow(_ source: TaskSource) -> some View {
+        let state = connectionState(for: source)
+        let connection = collection.connections[source]
+        let detail = source == .codex
+            ? (store.taskError ?? "Codex 任务与额度")
+            : (connection?.detail ?? "正在读取工作台")
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(state == .connected ? Palette.green : (state == .limited ? Palette.orange : Palette.red))
+                    .frame(width: 7, height: 7)
+                Text(source.label)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Palette.primary)
+                Spacer()
+                Text(state == .connected ? "已连接" : (state == .limited ? "受限" : "不可用"))
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(state == .connected ? Palette.green : (state == .limited ? Palette.orange : Palette.red))
+            }
+            Text(detail)
+                .font(.system(size: 10))
+                .foregroundStyle(Palette.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let observedAt = source == .codex ? store.lastTaskSync : connection?.observedAt {
+                HStack(spacing: 3) {
+                    Text("上次读取")
+                    Text(observedAt, style: .relative)
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(Palette.gray)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Palette.surface))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.border, lineWidth: 1))
+    }
+
+    private var taskContent: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text("最近任务与会话")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.primary)
+                Spacer()
+                Text("按更新时间排序")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Palette.secondary)
+            }
+            if let error = store.taskError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.orange)
+                    .lineLimit(2)
+                    .padding(.bottom, 2)
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 7) {
+                    ForEach(collection.tasks, id: \.displayID) { task in taskRow(task) }
+                    if collection.tasks.isEmpty {
+                        emptyState
+                    }
+                }
+                .padding(.vertical, 1)
+            }
+            .scrollIndicators(.hidden)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func taskRow(_ task: MonitoredTask) -> some View {
@@ -335,7 +352,7 @@ struct StatusPanelView: View {
                 .font(.system(size: 10))
             Text("拖动空白处移动悬浮框")
             Spacer()
-            Text("7 个来源")
+            Text(showingSettings ? "7 个来源" : "最近 100 条")
         }
         .font(.system(size: 10))
         .foregroundStyle(Palette.secondary)

@@ -80,18 +80,26 @@ actor IslandCodexAppServerClient {
     func readRecentTasks(limit: Int) async throws -> [CodexTaskSummary] {
         do {
             try await ensureStarted()
-            let response = try await send(
-                method: "thread/list",
-                params: [
-                    "limit": min(50, max(1, limit)),
+            let target = min(100, max(1, limit))
+            var tasks: [CodexTaskSummary] = []
+            var cursor: String?
+            repeat {
+                var params: [String: Any] = [
+                    "limit": min(50, target - tasks.count),
                     "sortKey": "recency_at",
                     "sortDirection": "desc",
                     "sourceKinds": ["appServer", "cli", "vscode"],
                     "archived": false,
                     "useStateDbOnly": true,
                 ]
-            )
-            return try CodexStatusDecoder.decodeTasks(response)
+                if let cursor { params["cursor"] = cursor }
+                let response = try await send(method: "thread/list", params: params)
+                let page = try CodexStatusDecoder.decodeTasksPage(response)
+                tasks.append(contentsOf: page.tasks)
+                cursor = page.nextCursor
+                if page.tasks.isEmpty { break }
+            } while tasks.count < target && cursor != nil
+            return Array(tasks.prefix(target))
         } catch {
             if shouldRestart(after: error) { stop() }
             throw error

@@ -177,9 +177,12 @@ enum CodexStatusDecoder {
         )
     }
 
-    static func decodeTasks(_ data: Data) throws -> [CodexTaskSummary] {
+    static func decodeTasksPage(_ data: Data) throws -> (tasks: [CodexTaskSummary], nextCursor: String?) {
         struct Response: Decodable {
-            struct Body: Decodable { let data: [Thread] }
+            struct Body: Decodable {
+                let data: [Thread]
+                let nextCursor: String?
+            }
             struct Thread: Decodable {
                 struct Status: Decodable { let type: String }
                 let id: String
@@ -193,7 +196,7 @@ enum CodexStatusDecoder {
         }
 
         let response = try JSONDecoder().decode(Response.self, from: data)
-        return response.result.data.map { thread in
+        let tasks = response.result.data.map { thread in
             let title = thread.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let state: CodexTaskState
             switch thread.status?.type {
@@ -209,6 +212,7 @@ enum CodexStatusDecoder {
                 source: thread.source
             )
         }
+        return (tasks, response.result.nextCursor)
     }
 
     private static func string(_ value: Any?) -> String? {

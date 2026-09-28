@@ -85,20 +85,27 @@ struct SourceConnection: Equatable, Sendable {
 
 @MainActor
 final class TaskCollectionStore: ObservableObject {
+    static let recentTaskLimit = 100
+
     @Published private(set) var tasks: [MonitoredTask] = []
     @Published private(set) var connections: [TaskSource: SourceConnection] = [:]
+    private var tasksBySource: [TaskSource: [MonitoredTask]] = [:]
 
     func setConnection(_ connection: SourceConnection) {
         connections[connection.source] = connection
     }
 
     func replaceTasks(from source: TaskSource, with replacement: [MonitoredTask]) {
-        tasks = (tasks.filter { $0.source != source } + replacement)
+        tasksBySource[source] = replacement
+        tasks = Array(tasksBySource.values.flatMap { $0 }
             .sorted { lhs, rhs in
-                let lhsActive = lhs.state == .working || lhs.state == .waiting
-                let rhsActive = rhs.state == .working || rhs.state == .waiting
-                if lhsActive != rhsActive { return lhsActive }
-                return lhs.updatedAt > rhs.updatedAt
+                if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+                return lhs.id < rhs.id
             }
+            .prefix(Self.recentTaskLimit))
+    }
+
+    func tasks(from source: TaskSource) -> [MonitoredTask] {
+        tasksBySource[source] ?? []
     }
 }

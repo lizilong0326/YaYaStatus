@@ -69,7 +69,7 @@ private actor KimiWorkReader {
             }
         }
         defer { sqlite3_finalize(statement) }
-        sqlite3_bind_int(statement, 1, Int32(min(30, max(1, limit))))
+        sqlite3_bind_int(statement, 1, Int32(min(100, max(1, limit))))
         var rows: [KimiConversation] = []
         while sqlite3_step(statement) == SQLITE_ROW {
             guard let keyText = sqlite3_column_text(statement, 0) else { continue }
@@ -151,7 +151,7 @@ final class KimiWorkStatusStore {
 
     func refresh() async {
         do {
-            let tasks = try await reader.readRecent(limit: 10)
+            let tasks = try await reader.readRecent(limit: TaskCollectionStore.recentTaskLimit)
             collection.replaceTasks(from: .kimiWork, with: tasks)
             collection.setConnection(SourceConnection(
                 source: .kimiWork,

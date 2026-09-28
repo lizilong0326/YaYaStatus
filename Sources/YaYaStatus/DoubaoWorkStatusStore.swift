@@ -150,9 +150,9 @@ final class DoubaoWorkStatusStore {
                 ))
                 return
             }
-            let sessions = try await reader.sessions(limit: 10)
-            let previous = Dictionary(uniqueKeysWithValues: collection.tasks
-                .filter { $0.source == .doubaoWork }.map { ($0.sourceTaskID, $0) })
+            let sessions = try await reader.sessions(limit: TaskCollectionStore.recentTaskLimit)
+            let previous = Dictionary(uniqueKeysWithValues: collection.tasks(from: .doubaoWork)
+                .map { ($0.sourceTaskID, $0) })
             var tasks = sessions.map { session in
                 let old = previous[session.id]
                 let changed = old.map { session.updatedAt > $0.updatedAt.addingTimeInterval(0.5) } ?? true
@@ -174,8 +174,10 @@ final class DoubaoWorkStatusStore {
                 let wasActive = old?.state == .working || old?.state == .waiting || old?.state == .unknown
                 let changed = old.map { session.updatedAt > $0.updatedAt.addingTimeInterval(0.5) } ?? true
                 let lastCheck = lastStatusCheck[session.id] ?? .distantPast
-                let shouldCheck = forceStatusCheck || index < 3 || wasActive || changed
-                    || Date().timeIntervalSince(lastCheck) > 5 * 60
+                let oldActive = old?.state == .working || old?.state == .waiting
+                let shouldCheck = forceStatusCheck || oldActive || (index < 10 && (
+                    index < 3 || wasActive || changed || Date().timeIntervalSince(lastCheck) > 5 * 60
+                ))
                 guard shouldCheck else { continue }
                 let state = await reader.state(for: session.id)
                 lastStatusCheck[session.id] = .now
@@ -221,7 +223,7 @@ final class DoubaoWorkStatusStore {
     }
 
     private func demoteActiveTasks() {
-        let current = collection.tasks.filter { $0.source == .doubaoWork }
+        let current = collection.tasks(from: .doubaoWork)
         collection.replaceTasks(from: .doubaoWork, with: current.map { task in
             MonitoredTask(
                 source: task.source,
