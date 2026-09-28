@@ -4,6 +4,19 @@ import SwiftUI
 final class FloatingStatusPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown, .leftMouseDragged, .leftMouseUp:
+            DragDiagnostics.shared.record("panel.sendEvent.\(event.type)",
+                                          window: self, event: event)
+            super.sendEvent(event)
+            DragDiagnostics.shared.record("panel.sendEvent.return.\(event.type)",
+                                          window: self, event: event)
+        default:
+            super.sendEvent(event)
+        }
+    }
 }
 
 @MainActor
@@ -24,6 +37,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         installPanel()
+        DragDiagnostics.shared.record("app.launch", window: panel,
+                                      details: "movableByBackground=\(panel.isMovableByWindowBackground)")
         installMenuBar()
         codexStore.start()
         workBuddyStore.start()
@@ -42,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        DragDiagnostics.shared.record("app.terminate", window: panel)
         pendingFrameSave?.cancel()
         savePanelFrame()
         codexStore.stop()
@@ -54,10 +70,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowDidMove(_ notification: Notification) {
+        DragDiagnostics.shared.record("window.didMove", window: panel)
         schedulePanelFrameSave()
     }
 
     func windowDidResize(_ notification: Notification) {
+        DragDiagnostics.shared.record("window.didResize", window: panel)
         schedulePanelFrameSave()
     }
 
@@ -116,6 +134,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func resizePanel(to size: NSSize) {
         guard panel != nil else { return }
+        DragDiagnostics.shared.record("panel.resize.request", window: panel,
+                                      details: "size=(\(size.width),\(size.height))")
         panel.isMovableByWindowBackground = size.width > StatusOrbMetrics.windowSide
         guard panel.frame.size != size else { return }
         let frame = panel.frame
@@ -124,6 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let originY = min(max(frame.maxY - size.height, area.minY + 8), area.maxY - size.height - 8)
         panel.setFrame(NSRect(x: originX, y: originY, width: size.width, height: size.height),
                        display: true)
+        DragDiagnostics.shared.record("panel.resize.applied", window: panel)
         savePanelFrame()
     }
 

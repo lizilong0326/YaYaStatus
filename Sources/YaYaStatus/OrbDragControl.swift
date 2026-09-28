@@ -51,22 +51,31 @@ final class OrbWindowDragButton: NSButton {
     override func mouseDown(with event: NSEvent) {
         originalMouseDown = event
         startedWindowDrag = false
+        DragDiagnostics.shared.record("orb.mouseDown", window: window, event: event)
     }
 
     override func mouseDragged(with event: NSEvent) {
+        DragDiagnostics.shared.record("orb.mouseDragged", window: window, event: event)
         guard !startedWindowDrag, let originalMouseDown else { return }
         let distance = event.locationInWindow - originalMouseDown.locationInWindow
         guard distance.width * distance.width + distance.height * distance.height >= 16 else { return }
         startedWindowDrag = true
+        DragDiagnostics.shared.record("orb.performDrag.begin", window: window,
+                                      event: originalMouseDown)
         window?.performDrag(with: originalMouseDown)
+        DragDiagnostics.shared.record("orb.performDrag.return", window: window,
+                                      event: event)
     }
 
     override func mouseUp(with event: NSEvent) {
+        DragDiagnostics.shared.record("orb.mouseUp", window: window, event: event,
+                                      details: "startedWindowDrag=\(startedWindowDrag)")
         defer {
             originalMouseDown = nil
             startedWindowDrag = false
         }
         if !startedWindowDrag, originalMouseDown != nil {
+            DragDiagnostics.shared.record("orb.activate", window: window, event: event)
             performClick(nil)
         }
     }
