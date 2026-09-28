@@ -16,16 +16,19 @@ private enum Palette {
     static let gray = Color(nsColor: .systemGray)
 }
 
+private final class OrbDragHistory {
+    var lastDragAt = Date.distantPast
+}
+
 struct StatusPanelView: View {
     @ObservedObject var store: CodexStatusStore
     @ObservedObject var collection: TaskCollectionStore
     let onRefresh: () -> Void
     let onSizeChange: (NSSize) -> Void
-    let onDragWindow: (CGSize) -> Void
+    let onDragOrb: (NSPoint, CGSize) -> Void
+    let onEndOrbDrag: () -> Void
     @State private var showingSettings = false
-    @State private var lastDragTranslation = CGSize.zero
-    @State private var lastPanelDragTranslation = CGSize.zero
-    @State private var lastOrbDragAt = Date.distantPast
+    @State private var orbDragHistory = OrbDragHistory()
     @State private var knownTaskStates: [String: MonitoredTaskState]?
     @State private var finishCue: OrbTaskFinishCue?
     @State private var showWorkingBeam = false
@@ -192,18 +195,6 @@ struct StatusPanelView: View {
             .help("设置与工作台")
         }
         .contentShape(Rectangle())
-        .simultaneousGesture(panelDragGesture)
-    }
-
-    private var panelDragGesture: some Gesture {
-        DragGesture(minimumDistance: 5)
-            .onChanged { value in
-                let delta = CGSize(width: value.translation.width - lastPanelDragTranslation.width,
-                                   height: value.translation.height - lastPanelDragTranslation.height)
-                lastPanelDragTranslation = value.translation
-                onDragWindow(delta)
-            }
-            .onEnded { _ in lastPanelDragTranslation = .zero }
     }
 
     private var appearanceButton: some View {
@@ -232,7 +223,7 @@ struct StatusPanelView: View {
 
     private var collapsedOrb: some View {
         Button {
-            guard Date().timeIntervalSince(lastOrbDragAt) > 0.3 else { return }
+            guard Date().timeIntervalSince(orbDragHistory.lastDragAt) > 0.3 else { return }
             showingSettings = false
             isCollapsed = false
         } label: {
@@ -248,15 +239,12 @@ struct StatusPanelView: View {
         .accessibilityLabel(orbStatusLabel + "，点击展开丫丫状态")
         .simultaneousGesture(DragGesture(minimumDistance: 4)
             .onChanged { value in
-                lastOrbDragAt = .now
-                let delta = CGSize(width: value.translation.width - lastDragTranslation.width,
-                                   height: value.translation.height - lastDragTranslation.height)
-                lastDragTranslation = value.translation
-                onDragWindow(delta)
+                orbDragHistory.lastDragAt = .now
+                onDragOrb(NSEvent.mouseLocation, value.translation)
             }
             .onEnded { _ in
-                lastOrbDragAt = .now
-                lastDragTranslation = .zero
+                orbDragHistory.lastDragAt = .now
+                onEndOrbDrag()
             })
         .frame(width: StatusOrbMetrics.windowSide, height: StatusOrbMetrics.windowSide)
     }
@@ -303,7 +291,6 @@ struct StatusPanelView: View {
             .help("刷新全部工作台")
         }
         .contentShape(Rectangle())
-        .simultaneousGesture(panelDragGesture)
     }
 
     private var settingsContent: some View {
