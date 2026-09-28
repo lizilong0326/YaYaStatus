@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private lazy var deepSeekWebStore = DeepSeekWebStatusStore(collection: taskCollection)
     private var panel: FloatingStatusPanel!
     private var statusItem: NSStatusItem!
-    private var orbDragAnchor: (mouse: NSPoint, origin: NSPoint)?
+    private var pendingFrameSave: Task<Void, Never>?
     private static let savedFrameKey = "floating-panel-frame-v1"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -42,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        pendingFrameSave?.cancel()
+        savePanelFrame()
         codexStore.stop()
         workBuddyStore.stop()
         kimiWorkStore.stop()
@@ -52,11 +54,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowDidMove(_ notification: Notification) {
-        savePanelFrame()
+        schedulePanelFrameSave()
     }
 
     func windowDidResize(_ notification: Notification) {
-        savePanelFrame()
+        schedulePanelFrameSave()
+    }
+
+    private func schedulePanelFrameSave() {
+        pendingFrameSave?.cancel()
+        pendingFrameSave = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            self?.savePanelFrame()
+        }
     }
 
     private func savePanelFrame() {
@@ -82,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.standardWindowButton(.closeButton)?.isHidden = true
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         panel.standardWindowButton(.zoomButton)?.isHidden = true
-        // Expanded panels use AppKit dragging; the collapsed orb has its own gesture.
+        // Expanded panels use background dragging; the orb hands its mouse-down to AppKit.
         panel.isMovableByWindowBackground = !isCollapsed
         panel.isReleasedWhenClosed = false
         panel.backgroundColor = .clear
@@ -99,11 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             store: codexStore,
             collection: taskCollection,
             onRefresh: { [weak self] in self?.refreshAll() },
-            onSizeChange: { [weak self] size in self?.resizePanel(to: size) },
-            onDragOrb: { [weak self] mouse, translation in
-                self?.moveOrb(to: mouse, initialTranslation: translation)
-            },
-            onEndOrbDrag: { [weak self] in self?.finishOrbDrag() }
+            onSizeChange: { [weak self] size in self?.resizePanel(to: size) }
         ))
     }
 
@@ -117,34 +124,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let originY = min(max(frame.maxY - size.height, area.minY + 8), area.maxY - size.height - 8)
         panel.setFrame(NSRect(x: originX, y: originY, width: size.width, height: size.height),
                        display: true)
-        savePanelFrame()
-    }
-
-    private func moveOrb(to mouse: NSPoint, initialTranslation: CGSize) {
-        guard panel != nil else { return }
-        let frame = panel.frame
-        if orbDragAnchor == nil {
-            // SwiftUI's drag Y points down; screen coordinates point up.
-            orbDragAnchor = (
-                mouse: NSPoint(x: mouse.x - initialTranslation.width,
-                               y: mouse.y + initialTranslation.height),
-                origin: frame.origin
-            )
-        }
-        guard let anchor = orbDragAnchor else { return }
-        let area = NSScreen.screens.first(where: { $0.frame.contains(mouse) })?.visibleFrame
-            ?? panel.screen?.visibleFrame
-            ?? NSScreen.main?.visibleFrame
-            ?? frame
-        let x = min(max(anchor.origin.x + mouse.x - anchor.mouse.x,
-                        area.minX + 8), area.maxX - frame.width - 8)
-        let y = min(max(anchor.origin.y + mouse.y - anchor.mouse.y,
-                        area.minY + 8), area.maxY - frame.height - 8)
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
-    }
-
-    private func finishOrbDrag() {
-        orbDragAnchor = nil
         savePanelFrame()
     }
 

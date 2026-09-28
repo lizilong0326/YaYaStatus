@@ -16,19 +16,12 @@ private enum Palette {
     static let gray = Color(nsColor: .systemGray)
 }
 
-private final class OrbDragHistory {
-    var lastDragAt = Date.distantPast
-}
-
 struct StatusPanelView: View {
     @ObservedObject var store: CodexStatusStore
     @ObservedObject var collection: TaskCollectionStore
     let onRefresh: () -> Void
     let onSizeChange: (NSSize) -> Void
-    let onDragOrb: (NSPoint, CGSize) -> Void
-    let onEndOrbDrag: () -> Void
     @State private var showingSettings = false
-    @State private var orbDragHistory = OrbDragHistory()
     @State private var knownTaskStates: [String: MonitoredTaskState]?
     @State private var finishCue: OrbTaskFinishCue?
     @State private var showWorkingBeam = false
@@ -222,30 +215,23 @@ struct StatusPanelView: View {
     }
 
     private var collapsedOrb: some View {
-        Button {
-            guard Date().timeIntervalSince(orbDragHistory.lastDragAt) > 0.3 else { return }
-            showingSettings = false
-            isCollapsed = false
-        } label: {
+        ZStack {
             StatusOrbFace(activeTaskCount: activeTaskCount,
                           workingTaskCount: workingTaskCount,
                           showWorkingBeam: showWorkingBeam,
                           finishCue: finishCue,
                           hasSourceError: failedSourceCount > 0,
                           isDarkMode: isDarkMode)
-        }
-        .buttonStyle(.plain)
-        .help(orbStatusLabel + "；点击展开，拖动可移动")
-        .accessibilityLabel(orbStatusLabel + "，点击展开丫丫状态")
-        .simultaneousGesture(DragGesture(minimumDistance: 4)
-            .onChanged { value in
-                orbDragHistory.lastDragAt = .now
-                onDragOrb(NSEvent.mouseLocation, value.translation)
+                .accessibilityHidden(true)
+            OrbDragControl(
+                accessibilityLabel: orbStatusLabel + "，点击展开丫丫状态",
+                toolTip: orbStatusLabel + "；点击展开，拖动可移动"
+            ) {
+                showingSettings = false
+                isCollapsed = false
             }
-            .onEnded { _ in
-                orbDragHistory.lastDragAt = .now
-                onEndOrbDrag()
-            })
+            .frame(width: StatusOrbMetrics.windowSide, height: StatusOrbMetrics.windowSide)
+        }
         .frame(width: StatusOrbMetrics.windowSide, height: StatusOrbMetrics.windowSide)
     }
 
