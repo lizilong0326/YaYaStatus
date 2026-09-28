@@ -19,7 +19,9 @@ private actor KimiWorkReader {
     }
 
     func readRecent(limit: Int) throws -> [MonitoredTask] {
-        guard FileManager.default.fileExists(atPath: databaseURL.path) else { return [] }
+        guard FileManager.default.fileExists(atPath: databaseURL.path) else {
+            throw NSError(domain: "KimiWorkReader", code: 0, userInfo: [NSLocalizedDescriptionKey: "未找到 Kimi Work 会话库"])
+        }
         let rows = try readConversationRows(limit: limit)
         let appURL = URL(fileURLWithPath: "/Applications/Kimi.app", isDirectory: true)
         let canOpenApp = FileManager.default.fileExists(atPath: appURL.path)
@@ -71,7 +73,12 @@ private actor KimiWorkReader {
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int(statement, 1, Int32(min(100, max(1, limit))))
         var rows: [KimiConversation] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
+        while true {
+            let step = sqlite3_step(statement)
+            if step == SQLITE_DONE { break }
+            guard step == SQLITE_ROW else {
+                throw NSError(domain: "KimiWorkReader", code: 3, userInfo: [NSLocalizedDescriptionKey: "Kimi Work 会话查询失败"])
+            }
             guard let keyText = sqlite3_column_text(statement, 0) else { continue }
             rows.append(KimiConversation(
                 key: String(cString: keyText),
@@ -155,14 +162,15 @@ final class KimiWorkStatusStore {
             collection.replaceTasks(from: .kimiWork, with: tasks)
             collection.setConnection(SourceConnection(
                 source: .kimiWork,
-                state: .limited,
-                detail: "只读会话状态；点击打开 Kimi 应用",
+                state: .partial,
+                detail: "会话与已有结束事件可读；静默任务无法确认；点击打开 Kimi",
                 observedAt: .now
             ))
         } catch {
+            let missingSource = (error as NSError).domain == "KimiWorkReader" && (error as NSError).code == 0
             collection.setConnection(SourceConnection(
                 source: .kimiWork,
-                state: .unavailable,
+                state: missingSource ? .setupRequired : .unavailable,
                 detail: error.localizedDescription,
                 observedAt: collection.connections[.kimiWork]?.observedAt
             ))

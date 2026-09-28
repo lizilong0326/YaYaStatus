@@ -47,7 +47,9 @@ private actor PiAgentReader {
 
     func readRecent(limit: Int) throws -> ([PiSessionSummary], [String: PiHookSnapshot]) {
         let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: sessionsDirectory.path) else { return ([], [:]) }
+        guard fileManager.fileExists(atPath: sessionsDirectory.path) else {
+            throw NSError(domain: "PiAgentReader", code: 0, userInfo: [NSLocalizedDescriptionKey: "未找到 Pi Agent 会话目录"])
+        }
         let folders = try fileManager.contentsOfDirectory(
             at: sessionsDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
         )
@@ -74,6 +76,9 @@ private actor PiAgentReader {
                 cache[file.url] = (file.modifiedAt, file.size, summary)
                 summaries.append(summary)
             }
+        }
+        if !files.isEmpty && summaries.isEmpty {
+            throw NSError(domain: "PiAgentReader", code: 1, userInfo: [NSLocalizedDescriptionKey: "Pi 会话文件格式不兼容"])
         }
         cache = cache.filter { entry in files.prefix(max(1, limit)).contains { $0.url == entry.key } }
         return (summaries, readHookSnapshots())
@@ -204,14 +209,15 @@ final class PiAgentStatusStore {
             let recentHook = hooks.values.contains { Date().timeIntervalSince($0.recordedAt) < 24 * 60 * 60 }
             collection.setConnection(SourceConnection(
                 source: .piAgent,
-                state: recentHook ? .connected : .limited,
+                state: recentHook ? .connected : .partial,
                 detail: recentHook ? "Pi 扩展事件已到达；点击打开 VS Code 工作区" :
-                    (installed ? "已安装 Pi 扩展；当前 Pi 会话需 /reload 或下次启动" : "只读 Pi 会话；安装扩展可获取实时状态"),
+                    (installed ? "会话可读；扩展需 /reload 或下次启动" : "会话可读；安装扩展可获取实时状态"),
                 observedAt: .now
             ))
         } catch {
+            let missingSource = (error as NSError).domain == "PiAgentReader" && (error as NSError).code == 0
             collection.setConnection(SourceConnection(
-                source: .piAgent, state: .unavailable,
+                source: .piAgent, state: missingSource ? .setupRequired : .unavailable,
                 detail: error.localizedDescription,
                 observedAt: collection.connections[.piAgent]?.observedAt
             ))

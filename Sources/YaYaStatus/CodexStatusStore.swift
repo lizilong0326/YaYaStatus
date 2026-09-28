@@ -25,7 +25,6 @@ final class CodexStatusStore: ObservableObject {
     private var isStarted = false
     private var isTaskRefreshing = false
     private var taskRefreshQueued = false
-    private var firstEmptyTaskListAt: Date?
 
     init(
         client: IslandCodexAppServerClient = IslandCodexAppServerClient(),
@@ -126,12 +125,7 @@ final class CodexStatusStore: ObservableObject {
             do {
                 let fetched = try await client.readRecentTasks(limit: TaskCollectionStore.recentTaskLimit)
                 if fetched.isEmpty && !tasks.isEmpty {
-                    firstEmptyTaskListAt = firstEmptyTaskListAt ?? .now
-                    if firstEmptyTaskListAt.map({ Date().timeIntervalSince($0) < 30 }) == true {
-                        throw IslandCodexClientError.rpc("任务列表暂时为空，等待再次确认")
-                    }
-                } else {
-                    firstEmptyTaskListAt = nil
+                    throw IslandCodexClientError.rpc("任务列表意外返回空，已保留上次记录并等待重试")
                 }
 
                 // thread/list does not distinguish completed and interrupted
@@ -163,8 +157,11 @@ final class CodexStatusStore: ObservableObject {
                     try? await Task.sleep(nanoseconds: 400_000_000)
                     continue
                 }
-                taskError = "Codex 状态暂时不可读，保留上次结果：\(error.localizedDescription)"
-                if lastTaskSync.map({ Date().timeIntervalSince($0) > 30 }) ?? true {
+                let isStale = lastTaskSync.map({ Date().timeIntervalSince($0) > 30 }) ?? true
+                taskError = isStale
+                    ? "Codex 读取中断，旧的工作中状态已撤回：\(error.localizedDescription)"
+                    : "Codex 暂时读取失败，保留上次状态并重试：\(error.localizedDescription)"
+                if isStale {
                     let demoted = tasks.map { $0.state == .working ? $0.withState(.unknown) : $0 }
                     if demoted != tasks {
                         tasks = demoted

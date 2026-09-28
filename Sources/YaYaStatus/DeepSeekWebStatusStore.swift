@@ -89,7 +89,7 @@ final class DeepSeekWebStatusStore {
         collection.replaceTasks(from: .deepSeekWeb, with: result.tasks)
         collection.setConnection(SourceConnection(
             source: .deepSeekWeb,
-            state: result.tasks.isEmpty ? .limited : .connected,
+            state: result.tasks.isEmpty ? .setupRequired : .connected,
             detail: result.tasks.isEmpty
                 ? (result.hostInstalled ? "本机桥接已安装；等待 Chrome 扩展的页面事件" : "需要安装 Chrome 扩展与本机桥接")
                 : "只观察已打开标签；未验证生成信号时显示状态未知",

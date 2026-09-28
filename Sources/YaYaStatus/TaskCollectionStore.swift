@@ -23,6 +23,7 @@ enum TaskSource: String, Codable, CaseIterable, Sendable {
 }
 
 enum MonitoredTaskState: String, Codable, Sendable {
+    case checking
     case working
     case waiting
     case completed
@@ -30,9 +31,11 @@ enum MonitoredTaskState: String, Codable, Sendable {
     case interrupted
     case failed
     case unknown
+    case sessionOnly
 
     var label: String {
         switch self {
+        case .checking: "核对中"
         case .working: "工作中"
         case .waiting: "等待操作"
         case .completed: "已完成"
@@ -40,6 +43,7 @@ enum MonitoredTaskState: String, Codable, Sendable {
         case .interrupted: "已中断"
         case .failed: "报错"
         case .unknown: "状态未知"
+        case .sessionOnly: "仅会话"
         }
     }
 }
@@ -64,8 +68,10 @@ struct MonitoredTask: Identifiable, Equatable, Sendable {
 }
 
 enum SourceConnectionState: String, Sendable {
+    case checking
     case connected
-    case limited
+    case partial
+    case setupRequired
     case unavailable
 }
 
@@ -93,6 +99,23 @@ final class TaskCollectionStore: ObservableObject {
 
     func setConnection(_ connection: SourceConnection) {
         connections[connection.source] = connection
+        if connection.state == .unavailable || connection.state == .setupRequired,
+           connection.observedAt.map({ Date().timeIntervalSince($0) > 30 }) ?? true {
+            demoteActiveTasks(from: connection.source)
+        }
+    }
+
+    func demoteActiveTasks(from source: TaskSource) {
+        let current = tasksBySource[source] ?? []
+        let replacement = current.map { task in
+            guard task.state == .working || task.state == .waiting else { return task }
+            return MonitoredTask(
+                source: task.source, sourceTaskID: task.sourceTaskID, title: task.title,
+                state: .unknown, updatedAt: task.updatedAt,
+                openURL: task.openURL, openScope: task.openScope
+            )
+        }
+        if replacement != current { replaceTasks(from: source, with: replacement) }
     }
 
     func replaceTasks(from source: TaskSource, with replacement: [MonitoredTask]) {

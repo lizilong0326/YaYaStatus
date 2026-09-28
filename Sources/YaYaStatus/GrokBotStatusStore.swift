@@ -15,7 +15,9 @@ private actor GrokBotReader {
         guard let files = try? fileManager.contentsOfDirectory(
             at: persistenceDirectory,
             includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]
-        ) else { return [] }
+        ) else {
+            throw NSError(domain: "GrokBotReader", code: 0, userInfo: [NSLocalizedDescriptionKey: "未找到 Grok Bot 本地会话快照"])
+        }
 
         // The desktop client keeps one roster snapshot per account. Pick the
         // most recently written one and read only its row metadata.
@@ -41,6 +43,9 @@ private actor GrokBotReader {
             roster = rows
             break
         }
+        if !candidates.isEmpty && roster == nil {
+            throw NSError(domain: "GrokBotReader", code: 1, userInfo: [NSLocalizedDescriptionKey: "Grok Bot 会话快照格式不兼容"])
+        }
 
         let appURL = URL(fileURLWithPath: "/Applications/Grok Bot.app", isDirectory: true)
         let canOpenApp = fileManager.fileExists(atPath: appURL.path)
@@ -60,7 +65,7 @@ private actor GrokBotReader {
                 source: .grokBot,
                 sourceTaskID: id,
                 title: "Bot · \(name.isEmpty ? "未命名 Bot" : name)",
-                state: .unknown,
+                state: .sessionOnly,
                 updatedAt: millis > 0 ? Date(timeIntervalSince1970: millis / 1_000) : .distantPast,
                 openURL: canOpenApp ? appURL : nil,
                 openScope: canOpenApp ? .application : .unavailable
@@ -120,16 +125,17 @@ final class GrokBotStatusStore {
             collection.replaceTasks(from: .grokBot, with: tasks)
             collection.setConnection(SourceConnection(
                 source: .grokBot,
-                state: .limited,
+                state: .partial,
                 detail: tasks.isEmpty
                     ? "尚未读到 Grok Bot 会话快照"
-                    : "只读 Bot 会话；无法判断云端任务状态；点击打开应用",
+                    : "Bot 目录可读；云端运行状态未开放；点击打开应用",
                 observedAt: .now
             ))
         } catch {
+            let missingSource = (error as NSError).domain == "GrokBotReader" && (error as NSError).code == 0
             collection.setConnection(SourceConnection(
                 source: .grokBot,
-                state: .unavailable,
+                state: missingSource ? .setupRequired : .unavailable,
                 detail: error.localizedDescription,
                 observedAt: collection.connections[.grokBot]?.observedAt
             ))

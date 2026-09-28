@@ -34,7 +34,9 @@ private actor WorkBuddyReader {
     }
 
     func readSessions(limit: Int) throws -> [WorkBuddySession] {
-        guard FileManager.default.fileExists(atPath: databaseURL.path) else { return [] }
+        guard FileManager.default.fileExists(atPath: databaseURL.path) else {
+            throw NSError(domain: "WorkBuddyReader", code: 0, userInfo: [NSLocalizedDescriptionKey: "未找到 WorkBuddy 会话库"])
+        }
         var db: OpaquePointer?
         guard sqlite3_open_v2(databaseURL.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK,
               let db else {
@@ -58,7 +60,12 @@ private actor WorkBuddyReader {
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int(statement, 1, Int32(min(100, max(1, limit))))
         var result: [WorkBuddySession] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
+        while true {
+            let step = sqlite3_step(statement)
+            if step == SQLITE_DONE { break }
+            guard step == SQLITE_ROW else {
+                throw NSError(domain: "WorkBuddyReader", code: 3, userInfo: [NSLocalizedDescriptionKey: "WorkBuddy 会话查询失败"])
+            }
             guard let idText = sqlite3_column_text(statement, 0) else { continue }
             let title = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? "未命名任务"
             let status = sqlite3_column_text(statement, 2).map { String(cString: $0) } ?? ""
@@ -169,17 +176,18 @@ final class WorkBuddyStatusStore {
             let hasRecentHook = hooks.values.contains { Date().timeIntervalSince($0.recordedAt) < 24 * 60 * 60 }
             collection.setConnection(SourceConnection(
                 source: .workBuddy,
-                state: hasRecentHook ? .connected : .limited,
+                state: hasRecentHook ? .connected : .partial,
                 detail: hasRecentHook ? "会话库与 Hook 均有数据" :
-                    (hookInstalled ? "已安装 Hook；等待下一次真实事件" : "仅读取本机会话"),
+                    (hookInstalled ? "会话可读；Hook 等待下一次真实事件" : "会话可读；缺少实时 Hook 事件"),
                 observedAt: .now
             ))
             lastError = nil
         } catch {
             lastError = error.localizedDescription
+            let missingSource = (error as NSError).domain == "WorkBuddyReader" && (error as NSError).code == 0
             collection.setConnection(SourceConnection(
                 source: .workBuddy,
-                state: .unavailable,
+                state: missingSource ? .setupRequired : .unavailable,
                 detail: error.localizedDescription,
                 observedAt: collection.connections[.workBuddy]?.observedAt
             ))

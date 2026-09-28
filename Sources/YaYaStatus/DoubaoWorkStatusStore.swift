@@ -25,7 +25,7 @@ private actor DoubaoWorkReader {
         guard let array = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
             throw error("豆包会话列表格式不兼容")
         }
-        return array.prefix(limit).compactMap { row in
+        let sessions: [(id: String, title: String, updatedAt: Date)] = array.prefix(limit).compactMap { row in
             guard let id = row["id"] as? String, id.count >= 12, id.count <= 24,
                   id.allSatisfy(\.isNumber) else { return nil }
             let title = (row["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -33,18 +33,19 @@ private actor DoubaoWorkReader {
             let updatedAt = seconds > 0 ? Date(timeIntervalSince1970: seconds) : .distantPast
             return (id, title?.isEmpty == false ? title! : "豆包任务", updatedAt)
         }
+        if !array.isEmpty && sessions.isEmpty { throw error("豆包会话列表格式不兼容") }
+        return sessions
     }
 
-    func state(for id: String) -> MonitoredTaskState {
-        guard let data = try? runCLI(["sessions", "status", id]),
-              let object = try? dictionary(from: data) else { return .unknown }
+    func state(for id: String) throws -> MonitoredTaskState {
+        let object = try dictionary(from: runCLI(["sessions", "status", id]))
         switch object["status"] as? String {
         case "running": return .working
         case "waiting_input": return .waiting
         case "completed": return .completed
         case "failed": return .failed
         case "cancelled": return .interrupted
-        default: return .unknown
+        default: throw error("豆包任务状态格式不兼容")
         }
     }
 
@@ -144,7 +145,7 @@ final class DoubaoWorkStatusStore {
                 demoteActiveTasks()
                 collection.setConnection(SourceConnection(
                     source: .doubaoWork,
-                    state: .limited,
+                    state: .setupRequired,
                     detail: "当前客户端未开启 CDP；需在任务结束后重启豆包工作",
                     observedAt: collection.connections[.doubaoWork]?.observedAt
                 ))
@@ -153,22 +154,26 @@ final class DoubaoWorkStatusStore {
             let sessions = try await reader.sessions(limit: TaskCollectionStore.recentTaskLimit)
             let previous = Dictionary(uniqueKeysWithValues: collection.tasks(from: .doubaoWork)
                 .map { ($0.sourceTaskID, $0) })
-            var tasks = sessions.map { session in
+            var tasks = sessions.enumerated().map { index, session in
                 let old = previous[session.id]
                 let changed = old.map { session.updatedAt > $0.updatedAt.addingTimeInterval(0.5) } ?? true
                 return monitoredTask(
                     for: session,
-                    state: changed ? .unknown : (old?.state ?? .unknown),
+                    state: changed ? ((forceStatusCheck || index < 10) ? .checking : .unknown) : (old?.state ?? .unknown),
                     previous: old
                 )
             }
             collection.replaceTasks(from: .doubaoWork, with: tasks)
-            collection.setConnection(SourceConnection(
-                source: .doubaoWork,
-                state: sessions.isEmpty ? .limited : .connected,
-                detail: sessions.isEmpty ? "CDP 已连接，但暂未读到会话" : "会话已同步；正在核对任务状态",
-                observedAt: .now
-            ))
+            if tasks.contains(where: { $0.state == .checking })
+                || collection.connections[.doubaoWork]?.state != .connected {
+                collection.setConnection(SourceConnection(
+                    source: .doubaoWork,
+                    state: .partial,
+                    detail: "会话已读取；正在核对逐轮任务状态",
+                    observedAt: collection.connections[.doubaoWork]?.observedAt ?? .now
+                ))
+            }
+            var statusFailures = 0
             for (index, session) in sessions.enumerated() {
                 let old = previous[session.id]
                 let wasActive = old?.state == .working || old?.state == .waiting || old?.state == .unknown
@@ -179,15 +184,24 @@ final class DoubaoWorkStatusStore {
                     index < 3 || wasActive || changed || Date().timeIntervalSince(lastCheck) > 5 * 60
                 ))
                 guard shouldCheck else { continue }
-                let state = await reader.state(for: session.id)
-                lastStatusCheck[session.id] = .now
-                tasks[index] = monitoredTask(for: session, state: state, previous: old)
-                collection.replaceTasks(from: .doubaoWork, with: tasks)
+                do {
+                    let state = try await reader.state(for: session.id)
+                    lastStatusCheck[session.id] = .now
+                    tasks[index] = monitoredTask(for: session, state: state, previous: old)
+                } catch {
+                    statusFailures += 1
+                    let recent = lastStatusCheck[session.id].map { Date().timeIntervalSince($0) < 30 } ?? false
+                    if tasks[index].state == .checking || (!recent && (tasks[index].state == .working || tasks[index].state == .waiting)) {
+                        tasks[index] = monitoredTask(for: session, state: .unknown, previous: old)
+                    }
+                }
             }
+            collection.replaceTasks(from: .doubaoWork, with: tasks)
             collection.setConnection(SourceConnection(
                 source: .doubaoWork,
-                state: sessions.isEmpty ? .limited : .connected,
-                detail: sessions.isEmpty ? "CDP 已连接，但暂未读到会话" : "CDP 已连接；逐轮任务状态已核对",
+                state: statusFailures > 0 ? .partial : .connected,
+                detail: sessions.isEmpty ? "CDP 已连接，当前没有会话" :
+                    (statusFailures > 0 ? "会话可读；\(statusFailures) 条状态查询失败，正在重试" : "CDP 已连接；逐轮任务状态已核对"),
                 observedAt: .now
             ))
         } catch {

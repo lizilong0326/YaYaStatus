@@ -9,6 +9,7 @@ private enum Palette {
     static let secondary = Color.white.opacity(0.57)
     static let green = Color(red: 0.24, green: 0.87, blue: 0.55)
     static let orange = Color(red: 1.0, green: 0.62, blue: 0.33)
+    static let blue = Color(red: 0.42, green: 0.72, blue: 1.0)
     static let red = Color(red: 1.0, green: 0.37, blue: 0.40)
     static let gray = Color.white.opacity(0.40)
 }
@@ -21,6 +22,11 @@ struct StatusPanelView: View {
 
     private var activeTaskCount: Int {
         collection.tasks.filter { $0.state == .working || $0.state == .waiting }.count
+    }
+
+    private var failedSourceCount: Int {
+        collection.connections.values.filter { $0.state == .unavailable }.count
+            + (connectionState(for: .codex) == .unavailable ? 1 : 0)
     }
 
     private var emptyTitle: String {
@@ -88,11 +94,16 @@ struct StatusPanelView: View {
             Button {
                 showingSettings = true
             } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Palette.secondary)
-                    .frame(width: 29, height: 29)
-                    .background(Circle().fill(Color.white.opacity(0.06)))
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.secondary)
+                        .frame(width: 29, height: 29)
+                        .background(Circle().fill(Color.white.opacity(0.06)))
+                    if failedSourceCount > 0 {
+                        Circle().fill(Palette.red).frame(width: 7, height: 7)
+                    }
+                }
             }
             .buttonStyle(.plain)
             .help("设置与工作台")
@@ -111,6 +122,11 @@ struct StatusPanelView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Palette.secondary)
                 Spacer()
+            }
+            if failedSourceCount > 0 {
+                Text("\(failedSourceCount) 个来源读取失败，请到设置查看")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Palette.red)
             }
             if !store.displayQuotaWindows.isEmpty {
                 HStack(spacing: 7) {
@@ -195,31 +211,51 @@ struct StatusPanelView: View {
         if source == .codex {
             if store.taskError != nil {
                 let recentlyVerified = store.lastTaskSync.map { Date().timeIntervalSince($0) < 30 } ?? false
-                return recentlyVerified ? .limited : .unavailable
+                return recentlyVerified ? .partial : .unavailable
             }
-            return store.lastTaskSync == nil ? .limited : .connected
+            return store.lastTaskSync == nil ? .checking : .connected
         }
-        return connection?.state ?? .limited
+        return connection?.state ?? .checking
+    }
+
+    private func connectionLabel(_ state: SourceConnectionState) -> String {
+        switch state {
+        case .checking: "连接中"
+        case .connected: "状态可读"
+        case .partial: "部分可用"
+        case .setupRequired: "待接入"
+        case .unavailable: "读取失败"
+        }
+    }
+
+    private func connectionColor(_ state: SourceConnectionState) -> Color {
+        switch state {
+        case .checking: Palette.gray
+        case .connected: Palette.green
+        case .partial: Palette.blue
+        case .setupRequired: Palette.orange
+        case .unavailable: Palette.red
+        }
     }
 
     private func sourceRow(_ source: TaskSource) -> some View {
         let state = connectionState(for: source)
         let connection = collection.connections[source]
         let detail = source == .codex
-            ? (store.taskError ?? "Codex 任务与额度")
+            ? (store.taskError ?? (store.lastTaskSync == nil ? "正在连接 Codex" : "Codex 任务与额度"))
             : (connection?.detail ?? "正在读取工作台")
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(state == .connected ? Palette.green : (state == .limited ? Palette.orange : Palette.red))
+                    .fill(connectionColor(state))
                     .frame(width: 7, height: 7)
                 Text(source.label)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Palette.primary)
                 Spacer()
-                Text(state == .connected ? "已连接" : (state == .limited ? "受限" : "不可用"))
+                Text(connectionLabel(state))
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(state == .connected ? Palette.green : (state == .limited ? Palette.orange : Palette.red))
+                    .foregroundStyle(connectionColor(state))
             }
             Text(detail)
                 .font(.system(size: 10))
@@ -278,7 +314,7 @@ struct StatusPanelView: View {
         } label: {
             HStack(spacing: 10) {
                 Circle()
-                    .fill(color(for: task.state))
+                    .fill(color(for: task))
                     .frame(width: 7, height: 7)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 4) {
@@ -287,8 +323,8 @@ struct StatusPanelView: View {
                         .foregroundStyle(Palette.primary)
                         .lineLimit(1)
                     HStack(spacing: 7) {
-                        Text("\(task.source.label) · \(task.state.label)")
-                            .foregroundStyle(color(for: task.state))
+                        Text("\(task.source.label) · \(stateLabel(for: task))")
+                            .foregroundStyle(color(for: task))
                         Text("·")
                             .foregroundStyle(Palette.secondary)
                         Text(task.updatedAt, style: .relative)
@@ -334,8 +370,27 @@ struct StatusPanelView: View {
         .padding(.vertical, 42)
     }
 
-    private func color(for state: MonitoredTaskState) -> Color {
-        switch state {
+    private func stateLabel(for task: MonitoredTask) -> String {
+        guard task.state == .unknown else { return task.state.label }
+        switch connectionState(for: task.source) {
+        case .checking: return "核对中"
+        case .setupRequired: return "待接入"
+        case .unavailable: return "读取中断"
+        case .connected, .partial: return "状态未确认"
+        }
+    }
+
+    private func color(for task: MonitoredTask) -> Color {
+        if task.state == .unknown {
+            switch connectionState(for: task.source) {
+            case .checking, .partial: return Palette.blue
+            case .setupRequired: return Palette.orange
+            case .unavailable: return Palette.red
+            case .connected: return Palette.gray
+            }
+        }
+        return switch task.state {
+        case .checking: Palette.blue
         case .working: Palette.orange
         case .waiting: Palette.orange
         case .completed: Palette.green
@@ -343,6 +398,7 @@ struct StatusPanelView: View {
         case .interrupted: Palette.orange
         case .failed: Palette.red
         case .unknown: Palette.gray
+        case .sessionOnly: Palette.gray
         }
     }
 
