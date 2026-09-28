@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "丫丫状态 · DeepSeek 网页",
+  "version": "0.1.0",
+  "description": "仅在 DeepSeek 聊天页观察当前会话状态，并发送给本机丫丫状态。",
+  "permissions": ["nativeMessaging"],
+  "host_permissions": ["https://chat.deepseek.com/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [{
+    "matches": ["https://chat.deepseek.com/*"],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }]
+}

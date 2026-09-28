@@ -56,7 +56,7 @@ struct StatusPanelView: View {
             footer
         }
         .padding(20)
-        .frame(width: 390, height: 570)
+        .frame(width: 390, height: 605)
         .background {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Palette.background)
@@ -126,6 +126,10 @@ struct StatusPanelView: View {
                 HStack(spacing: 5) {
                     providerBadge(.doubaoWork)
                     providerBadge(.grokBot)
+                    providerBadge(.piAgent)
+                }
+                HStack(spacing: 5) {
+                    providerBadge(.deepSeekWeb)
                 }
             }
             if let selectedSource, let connection = collection.connections[selectedSource] {
@@ -277,7 +281,7 @@ struct StatusPanelView: View {
                 }
                 Spacer(minLength: 0)
                 if task.openScope == .application {
-                    Text("打开应用")
+                    Text(task.source == .piAgent ? "打开工作区" : "打开应用")
                         .font(.system(size: 9))
                         .foregroundStyle(Palette.secondary)
                 } else if task.openScope == .exactTask {
@@ -295,7 +299,9 @@ struct StatusPanelView: View {
         .disabled(task.openURL == nil)
         .help(task.openScope == .exactTask
               ? "在 \(task.source.label) 中打开：\(task.title)"
-              : "打开 \(task.source.label) 应用；暂不能定位到此任务")
+              : (task.source == .piAgent
+                 ? "打开 VS Code 工作区；暂不能定位到原 Pi 终端"
+                 : "打开 \(task.source.label) 应用；暂不能定位到此任务"))
     }
 
     private var emptyState: some View {
@@ -316,6 +322,7 @@ struct StatusPanelView: View {
         case .working: Palette.orange
         case .waiting: Palette.orange
         case .completed: Palette.green
+        case .ended: Palette.green
         case .interrupted: Palette.orange
         case .failed: Palette.red
         case .unknown: Palette.gray
@@ -328,7 +335,7 @@ struct StatusPanelView: View {
                 .font(.system(size: 10))
             Text("拖动空白处移动悬浮框")
             Spacer()
-            Text("Codex · WorkBuddy · Kimi · 豆包 · Grok")
+            Text("7 个来源")
         }
         .font(.system(size: 10))
         .foregroundStyle(Palette.secondary)

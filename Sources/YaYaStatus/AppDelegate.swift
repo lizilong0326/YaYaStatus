@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private lazy var kimiWorkStore = KimiWorkStatusStore(collection: taskCollection)
     private lazy var doubaoWorkStore = DoubaoWorkStatusStore(collection: taskCollection)
     private lazy var grokBotStore = GrokBotStatusStore(collection: taskCollection)
+    private lazy var piAgentStore = PiAgentStatusStore(collection: taskCollection)
+    private lazy var deepSeekWebStore = DeepSeekWebStatusStore(collection: taskCollection)
     private var panel: FloatingStatusPanel!
     private var statusItem: NSStatusItem!
     private static let savedFrameKey = "floating-panel-frame-v1"
@@ -27,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         kimiWorkStore.start()
         doubaoWorkStore.start()
         grokBotStore.start()
+        piAgentStore.start()
+        deepSeekWebStore.start()
         showPanel()
     }
 
@@ -41,6 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         kimiWorkStore.stop()
         doubaoWorkStore.stop()
         grokBotStore.stop()
+        piAgentStore.stop()
+        deepSeekWebStore.stop()
     }
 
     func windowDidMove(_ notification: Notification) {
@@ -49,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func installPanel() {
-        let size = NSSize(width: 390, height: 570)
+        let size = NSSize(width: 390, height: 605)
         let initialFrame = restoredFrame(size: size)
         panel = FloatingStatusPanel(
             contentRect: initialFrame,
@@ -127,6 +133,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             await kimiWorkStore.refresh()
             await doubaoWorkStore.refresh(forceStatusCheck: true)
             await grokBotStore.refresh()
+            await piAgentStore.refresh()
+            await deepSeekWebStore.refresh()
         }
     }
 

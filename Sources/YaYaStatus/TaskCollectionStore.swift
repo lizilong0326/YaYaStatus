@@ -6,6 +6,8 @@ enum TaskSource: String, Codable, CaseIterable, Sendable {
     case doubaoWork
     case kimiWork
     case grokBot
+    case piAgent
+    case deepSeekWeb
 
     var label: String {
         switch self {
@@ -14,6 +16,8 @@ enum TaskSource: String, Codable, CaseIterable, Sendable {
         case .doubaoWork: "豆包工作"
         case .kimiWork: "Kimi Work"
         case .grokBot: "Grok Bot"
+        case .piAgent: "Pi Agent"
+        case .deepSeekWeb: "DeepSeek 网页"
         }
     }
 }
@@ -22,6 +26,7 @@ enum MonitoredTaskState: String, Codable, Sendable {
     case working
     case waiting
     case completed
+    case ended
     case interrupted
     case failed
     case unknown
@@ -31,6 +36,7 @@ enum MonitoredTaskState: String, Codable, Sendable {
         case .working: "工作中"
         case .waiting: "等待操作"
         case .completed: "已完成"
+        case .ended: "已结束"
         case .interrupted: "已中断"
         case .failed: "报错"
         case .unknown: "状态未知"
