@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func installPanel() {
-        let size = NSSize(width: 390, height: 605)
+        let size = NSSize(width: 390, height: 265)
         let initialFrame = restoredFrame(size: size)
         panel = FloatingStatusPanel(
             contentRect: initialFrame,
@@ -82,8 +82,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.contentView = NSHostingView(rootView: StatusPanelView(
             store: codexStore,
             collection: taskCollection,
-            onRefresh: { [weak self] in self?.refreshAll() }
+            onRefresh: { [weak self] in self?.refreshAll() },
+            onHeightChange: { [weak self] height in self?.resizePanel(to: height) }
         ))
+    }
+
+    private func resizePanel(to height: CGFloat) {
+        guard panel != nil, panel.frame.height != height else { return }
+        let frame = panel.frame
+        let area = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? frame
+        let originY = min(max(frame.maxY - height, area.minY + 8), area.maxY - height - 8)
+        panel.setFrame(NSRect(x: frame.minX, y: originY, width: frame.width, height: height),
+                       display: true)
     }
 
     private func restoredFrame(size: NSSize) -> NSRect {

@@ -110,6 +110,7 @@ final class TaskCollectionStore: ObservableObject {
     static let recentTaskLimit = 100
 
     @Published private(set) var tasks: [MonitoredTask] = []
+    @Published private(set) var activeTasks: [MonitoredTask] = []
     @Published private(set) var connections: [TaskSource: SourceConnection] = [:]
     private var tasksBySource: [TaskSource: [MonitoredTask]] = [:]
 
@@ -137,12 +138,12 @@ final class TaskCollectionStore: ObservableObject {
 
     func replaceTasks(from source: TaskSource, with replacement: [MonitoredTask]) {
         tasksBySource[source] = replacement
-        tasks = Array(tasksBySource.values.flatMap { $0 }
-            .sorted { lhs, rhs in
-                if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
-                return lhs.id < rhs.id
-            }
-            .prefix(Self.recentTaskLimit))
+        let sorted = tasksBySource.values.flatMap { $0 }.sorted { lhs, rhs in
+            if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
+            return lhs.id < rhs.id
+        }
+        tasks = Array(sorted.prefix(Self.recentTaskLimit))
+        activeTasks = sorted.filter { $0.state == .working || $0.state == .waiting }
     }
 
     func tasks(from source: TaskSource) -> [MonitoredTask] {

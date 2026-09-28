@@ -29,7 +29,9 @@ enum IslandCodexExecutableLocator {
     ) -> URL? {
         let home = fileManager.homeDirectoryForCurrentUser
         var candidates = [
+            URL(fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
             URL(fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex"),
+            home.appendingPathComponent("Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
             home.appendingPathComponent("Applications/ChatGPT.app/Contents/Resources/codex"),
             URL(fileURLWithPath: "/opt/homebrew/bin/codex"),
             URL(fileURLWithPath: "/usr/local/bin/codex"),
@@ -49,17 +51,19 @@ actor IslandCodexAppServerClient {
         let continuation: CheckedContinuation<Data, Error>
     }
 
-    private let executableURL: URL?
+    private let preferredExecutableURL: URL?
     private var process: Process?
+    private var activeProcessToken: UUID?
     private var inputHandle: FileHandle?
     private var outputBuffer = Data()
     private var pending: [Int64: PendingRequest] = [:]
     private var nextID: Int64 = 1
     private var isInitialized = false
+    private var startupTask: Task<Void, Error>?
     private var rateLimitUpdatedHandler: (@Sendable () -> Void)?
 
-    init(executableURL: URL? = IslandCodexExecutableLocator.locate()) {
-        self.executableURL = executableURL
+    init(executableURL: URL? = nil) {
+        preferredExecutableURL = executableURL
     }
 
     func setRateLimitUpdatedHandler(_ handler: (@Sendable () -> Void)?) {
@@ -114,20 +118,38 @@ actor IslandCodexAppServerClient {
         inputHandle?.closeFile()
         if process.isRunning { process.terminate() }
         self.process = nil
+        activeProcessToken = nil
         inputHandle = nil
+        outputBuffer.removeAll(keepingCapacity: true)
         isInitialized = false
         failPending(with: IslandCodexClientError.disconnected)
     }
 
     private func ensureStarted() async throws {
         if process?.isRunning == true, isInitialized { return }
+        if let startupTask {
+            try await startupTask.value
+            return
+        }
+        let task = Task { try await startProcess() }
+        startupTask = task
+        defer { startupTask = nil }
+        try await task.value
+    }
+
+    private func startProcess() async throws {
         stop()
+        let executableURL = preferredExecutableURL.flatMap {
+            FileManager.default.isExecutableFile(atPath: $0.path) ? $0 : nil
+        } ?? IslandCodexExecutableLocator.locate()
         guard let executableURL else { throw IslandCodexClientError.codexNotFound }
 
         let process = Process()
         let input = Pipe()
         let output = Pipe()
         let error = Pipe()
+        let token = UUID()
+        activeProcessToken = token
         process.executableURL = executableURL
         process.arguments = ["app-server", "--listen", "stdio://"]
         process.standardInput = input
@@ -136,18 +158,19 @@ actor IslandCodexAppServerClient {
 
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            Task { await self?.receive(data) }
+            Task { await self?.receive(data, from: token) }
         }
         error.fileHandleForReading.readabilityHandler = { handle in
             _ = handle.availableData
         }
         process.terminationHandler = { [weak self] _ in
-            Task { await self?.didTerminate() }
+            Task { await self?.didTerminate(token) }
         }
 
         do {
             try process.run()
         } catch {
+            activeProcessToken = nil
             throw IslandCodexClientError.launchFailed(error.localizedDescription)
         }
         self.process = process
@@ -202,7 +225,8 @@ actor IslandCodexAppServerClient {
         }
     }
 
-    private func receive(_ data: Data) {
+    private func receive(_ data: Data, from token: UUID) {
+        guard activeProcessToken == token else { return }
         guard !data.isEmpty else {
             failPending(with: IslandCodexClientError.disconnected)
             return
@@ -241,10 +265,13 @@ actor IslandCodexAppServerClient {
         request.continuation.resume(throwing: IslandCodexClientError.timeout(method))
     }
 
-    private func didTerminate() {
+    private func didTerminate(_ token: UUID) {
+        guard activeProcessToken == token else { return }
         process = nil
+        activeProcessToken = nil
         inputHandle = nil
         isInitialized = false
+        outputBuffer.removeAll(keepingCapacity: true)
         failPending(with: IslandCodexClientError.disconnected)
     }
 

@@ -18,10 +18,17 @@ struct StatusPanelView: View {
     @ObservedObject var store: CodexStatusStore
     @ObservedObject var collection: TaskCollectionStore
     let onRefresh: () -> Void
+    let onHeightChange: (CGFloat) -> Void
     @State private var showingSettings = false
 
     private var activeTaskCount: Int {
-        collection.tasks.filter { $0.state == .working || $0.state == .waiting }.count
+        collection.activeTasks.count
+    }
+
+    private var panelHeight: CGFloat {
+        if showingSettings { return 605 }
+        if activeTaskCount == 0 { return 265 }
+        return min(605, max(230, 138 + CGFloat(activeTaskCount) * 60))
     }
 
     private var failedSourceCount: Int {
@@ -30,7 +37,7 @@ struct StatusPanelView: View {
     }
 
     private var emptyTitle: String {
-        store.isRefreshing ? "正在读取任务…" : "暂时没有任务与会话"
+        store.isRefreshing ? "正在检查任务…" : "当前没有进行中的任务"
     }
 
     var body: some View {
@@ -41,15 +48,12 @@ struct StatusPanelView: View {
                     .padding(.top, 20)
             } else {
                 header
-                overviewCard
-                    .padding(.top, 19)
                 taskContent
                     .padding(.top, 18)
             }
-            footer
         }
         .padding(20)
-        .frame(width: 390, height: 605)
+        .frame(width: 390, height: panelHeight)
         .background {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Palette.background)
@@ -59,6 +63,8 @@ struct StatusPanelView: View {
                 .stroke(Palette.border, lineWidth: 1)
         }
         .preferredColorScheme(.dark)
+        .onAppear { onHeightChange(panelHeight) }
+        .onChange(of: panelHeight) { onHeightChange($0) }
     }
 
     private var header: some View {
@@ -75,7 +81,7 @@ struct StatusPanelView: View {
                 Text("丫丫状态")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Palette.primary)
-                Text("所有 AI 任务，一个地方看")
+                Text("正在进行的 AI 任务")
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.secondary)
             }
@@ -108,44 +114,6 @@ struct StatusPanelView: View {
             .buttonStyle(.plain)
             .help("设置与工作台")
         }
-    }
-
-    private var overviewCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text("\(activeTaskCount) 个进行中")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(activeTaskCount == 0 ? Palette.secondary : Palette.green)
-                Text("·")
-                    .foregroundStyle(Palette.secondary)
-                Text("显示最近 \(collection.tasks.count) / \(TaskCollectionStore.recentTaskLimit) 条")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Palette.secondary)
-                Spacer()
-            }
-            if failedSourceCount > 0 {
-                Text("\(failedSourceCount) 个来源读取失败，请到设置查看")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Palette.red)
-            }
-            if !store.displayQuotaWindows.isEmpty {
-                HStack(spacing: 7) {
-                    ForEach(store.displayQuotaWindows) { window in
-                        Text("\(window.shortName)剩余 \(Int(window.remainingPercent.rounded()))%")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(Palette.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(Capsule().fill(Color.white.opacity(0.06)))
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
-        }
-        .padding(13)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 15, style: .continuous).fill(Palette.surface))
-        .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(Palette.border, lineWidth: 1))
     }
 
     private var settingsHeader: some View {
@@ -242,7 +210,7 @@ struct StatusPanelView: View {
         let state = connectionState(for: source)
         let connection = collection.connections[source]
         let detail = source == .codex
-            ? (store.taskError ?? (store.lastTaskSync == nil ? "正在连接 Codex" : "Codex 任务与额度"))
+            ? (store.taskError ?? (store.lastTaskSync == nil ? "正在连接 Codex" : "Codex 任务状态"))
             : (connection?.detail ?? "正在读取工作台")
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
@@ -279,25 +247,14 @@ struct StatusPanelView: View {
     private var taskContent: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
-                Text("最近任务与会话")
+                Text("\(activeTaskCount) 个进行中")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Palette.primary)
-                Spacer()
-                Text("按更新时间排序")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Palette.secondary)
-            }
-            if let error = store.taskError {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.orange)
-                    .lineLimit(2)
-                    .padding(.bottom, 2)
+                    .foregroundStyle(activeTaskCount == 0 ? Palette.secondary : Palette.green)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 7) {
-                    ForEach(collection.tasks, id: \.displayID) { task in taskRow(task) }
-                    if collection.tasks.isEmpty {
+                    ForEach(collection.activeTasks, id: \.displayID) { task in taskRow(task) }
+                    if collection.activeTasks.isEmpty {
                         emptyState
                     }
                 }
@@ -437,22 +394,6 @@ struct StatusPanelView: View {
         case .failed: Palette.red
         case .unknown: Palette.gray
         case .sessionOnly: Palette.gray
-        }
-    }
-
-    private var footer: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "hand.draw")
-                .font(.system(size: 10))
-            Text("拖动空白处移动悬浮框")
-            Spacer()
-            Text(showingSettings ? "7 个来源" : "最近 100 条")
-        }
-        .font(.system(size: 10))
-        .foregroundStyle(Palette.secondary)
-        .padding(.top, 12)
-        .overlay(alignment: .top) {
-            Rectangle().fill(Palette.border).frame(height: 1)
         }
     }
 }
