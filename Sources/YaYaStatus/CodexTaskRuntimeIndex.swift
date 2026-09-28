@@ -79,6 +79,7 @@ actor IslandCodexTaskRuntimeIndex {
             throw IslandCodexRuntimeIndexError.open(message)
         }
         defer { sqlite3_close(database) }
+        sqlite3_busy_timeout(database, 750)
 
         let placeholders = Array(repeating: "?", count: uniqueIDs.count).joined(separator: ",")
         let sql = """

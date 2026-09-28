@@ -18,19 +18,25 @@ final class CodexStatusStore: ObservableObject {
     private let client: IslandCodexAppServerClient
     private let runtimeIndex: IslandCodexTaskRuntimeIndex
     private let collection: TaskCollectionStore?
+    private let defaults: UserDefaults
     private var quotaLoop: Task<Void, Never>?
     private var taskLoop: Task<Void, Never>?
     private var eventRefreshTask: Task<Void, Never>?
     private var isStarted = false
+    private var isTaskRefreshing = false
+    private var taskRefreshQueued = false
+    private var firstEmptyTaskListAt: Date?
 
     init(
         client: IslandCodexAppServerClient = IslandCodexAppServerClient(),
         runtimeIndex: IslandCodexTaskRuntimeIndex = IslandCodexTaskRuntimeIndex(),
-        collection: TaskCollectionStore? = nil
+        collection: TaskCollectionStore? = nil,
+        defaults: UserDefaults = .standard
     ) {
         self.client = client
         self.runtimeIndex = runtimeIndex
         self.collection = collection
+        self.defaults = defaults
         restoreCache()
     }
 
@@ -63,6 +69,7 @@ final class CodexStatusStore: ObservableObject {
 
     func stop() {
         isStarted = false
+        taskRefreshQueued = false
         quotaLoop?.cancel()
         taskLoop?.cancel()
         eventRefreshTask?.cancel()
@@ -103,16 +110,48 @@ final class CodexStatusStore: ObservableObject {
     }
 
     private func refreshTasks() async {
+        if isTaskRefreshing {
+            taskRefreshQueued = true
+            return
+        }
+        isTaskRefreshing = true
+        defer {
+            isTaskRefreshing = false
+            if taskRefreshQueued && isStarted {
+                taskRefreshQueued = false
+                Task { [weak self] in await self?.refreshTasks() }
+            }
+        }
         for attempt in 0..<2 {
             do {
                 let fetched = try await client.readRecentTasks(limit: 16)
-                if let states = try? await runtimeIndex.latestStates(for: fetched.map(\.id)) {
-                    tasks = fetched.map { task in
-                        guard let runtime = states[task.id] else { return task }
-                        return task.withState(runtime.taskState())
+                if fetched.isEmpty && !tasks.isEmpty {
+                    firstEmptyTaskListAt = firstEmptyTaskListAt ?? .now
+                    if firstEmptyTaskListAt.map({ Date().timeIntervalSince($0) < 30 }) == true {
+                        throw IslandCodexClientError.rpc("任务列表暂时为空，等待再次确认")
                     }
                 } else {
-                    tasks = fetched
+                    firstEmptyTaskListAt = nil
+                }
+
+                // thread/list does not distinguish completed and interrupted
+                // turns. Never replace verified states with its unknown fallback.
+                let states = try await runtimeIndex.latestStates(for: fetched.map(\.id))
+                if states.isEmpty && fetched.contains(where: { fetchedTask in
+                    tasks.contains { $0.id == fetchedTask.id && $0.state != .unknown }
+                }) {
+                    throw IslandCodexRuntimeIndexError.query("已有任务的状态暂时没有返回")
+                }
+                let previous = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
+                tasks = fetched.map { task in
+                    if let runtime = states[task.id] {
+                        return task.withState(runtime.taskState())
+                    }
+                    if task.state == .working { return task }
+                    if let old = previous[task.id], old.state != .working {
+                        return task.withState(old.state)
+                    }
+                    return task
                 }
                 taskError = nil
                 lastTaskSync = .now
@@ -120,13 +159,18 @@ final class CodexStatusStore: ObservableObject {
                 persistCache()
                 return
             } catch {
-                if attempt == 0, lastTaskSync == nil, isStarted {
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if attempt == 0 {
+                    try? await Task.sleep(nanoseconds: 400_000_000)
                     continue
                 }
-                taskError = error.localizedDescription
-                tasks = tasks.map { $0.state == .working ? $0.withState(.unknown) : $0 }
-                publishToCollection()
+                taskError = "Codex 状态暂时不可读，保留上次结果：\(error.localizedDescription)"
+                if lastTaskSync.map({ Date().timeIntervalSince($0) > 30 }) ?? true {
+                    let demoted = tasks.map { $0.state == .working ? $0.withState(.unknown) : $0 }
+                    if demoted != tasks {
+                        tasks = demoted
+                        publishToCollection()
+                    }
+                }
             }
         }
     }
@@ -145,7 +189,7 @@ final class CodexStatusStore: ObservableObject {
 
         taskLoop = Task { [weak self] in
             while let self, self.isStarted, !Task.isCancelled {
-                let interval: UInt64 = self.workingTasks.isEmpty ? 15 : 2
+                let interval: UInt64 = self.taskError != nil || !self.workingTasks.isEmpty ? 2 : 15
                 try? await Task.sleep(nanoseconds: interval * 1_000_000_000)
                 guard self.isStarted, !Task.isCancelled else { break }
                 await self.refreshTasks()
@@ -163,7 +207,7 @@ final class CodexStatusStore: ObservableObject {
     }
 
     private func restoreCache() {
-        guard let data = UserDefaults.standard.data(forKey: Self.cacheKey),
+        guard let data = defaults.data(forKey: Self.cacheKey),
               let cache = try? JSONDecoder().decode(Cache.self, from: data) else {
             return
         }
@@ -200,7 +244,7 @@ final class CodexStatusStore: ObservableObject {
     private func persistCache() {
         let cache = Cache(quota: quota, tasks: tasks)
         if let data = try? JSONEncoder().encode(cache) {
-            UserDefaults.standard.set(data, forKey: Self.cacheKey)
+            defaults.set(data, forKey: Self.cacheKey)
         }
     }
 }

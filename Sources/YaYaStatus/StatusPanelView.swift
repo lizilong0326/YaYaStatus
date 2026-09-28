@@ -169,7 +169,12 @@ struct StatusPanelView: View {
         let connection = collection.connections[source]
         let state: SourceConnectionState
         if source == .codex {
-            state = store.taskError != nil ? .unavailable : (store.lastTaskSync == nil ? .limited : .connected)
+            if store.taskError != nil {
+                let recentlyVerified = store.lastTaskSync.map { Date().timeIntervalSince($0) < 30 } ?? false
+                state = recentlyVerified ? .limited : .unavailable
+            } else {
+                state = store.lastTaskSync == nil ? .limited : .connected
+            }
         } else {
             state = connection?.state ?? .limited
         }
@@ -190,7 +195,7 @@ struct StatusPanelView: View {
             .background(Capsule().fill(selectedSource == source ? Palette.green.opacity(0.18) : Color.white.opacity(0.07)))
         }
         .buttonStyle(.plain)
-        .help("筛选 \(source.label)；\(connection?.detail ?? (source == .codex ? "Codex 任务与额度" : "正在读取"))")
+        .help("筛选 \(source.label)；\(source == .codex ? (store.taskError ?? "Codex 任务与额度") : (connection?.detail ?? "正在读取"))")
     }
 
     private var taskContent: some View {
@@ -209,7 +214,7 @@ struct StatusPanelView: View {
                         .foregroundStyle(Palette.secondary)
                 }
             }
-            if let error = store.taskError {
+            if selectedSource == nil || selectedSource == .codex, let error = store.taskError {
                 Text(error)
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.orange)
