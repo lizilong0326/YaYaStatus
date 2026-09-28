@@ -128,7 +128,7 @@ struct StatusPanelView: View {
                 .foregroundStyle(Palette.secondary)
             Text("\(activeTaskCount) 个进行中")
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(activeTaskCount == 0 ? Palette.secondary : readableGreen)
+                .foregroundStyle(activeTaskCount == 0 ? Palette.secondary : readableOrange)
             Spacer()
             appearanceButton
             collapseButton
@@ -516,7 +516,7 @@ struct StatusPanelView: View {
         case .waiting: readableOrange
         case .completed: readableGreen
         case .ended: readableGreen
-        case .interrupted: readableOrange
+        case .interrupted: Palette.gray
         case .failed: Palette.red
         case .unknown: Palette.gray
         case .sessionOnly: Palette.gray
