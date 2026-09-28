@@ -16,7 +16,7 @@
 ## 一颗圆球，看见任务正在发生什么
 
 <p align="center">
-  <img src="Resources/StatusOrbRunning.gif" alt="进行中的悬浮圆球动画，中央显示活动任务数" width="92">
+  <img src="Resources/StatusOrbRunningTransparent.gif" alt="透明背景的进行中悬浮圆球动画，中央显示活动任务数" width="92">
 </p>
 
 | 圆球信号 | 表示什么 |
