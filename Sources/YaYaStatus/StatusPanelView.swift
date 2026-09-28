@@ -2,33 +2,58 @@ import AppKit
 import SwiftUI
 
 private enum Palette {
-    static let background = Color(red: 0.075, green: 0.09, blue: 0.11)
-    static let surface = Color(red: 0.12, green: 0.14, blue: 0.17)
-    static let border = Color.white.opacity(0.11)
-    static let primary = Color.white.opacity(0.94)
-    static let secondary = Color.white.opacity(0.57)
-    static let green = Color(red: 0.24, green: 0.87, blue: 0.55)
-    static let orange = Color(red: 1.0, green: 0.62, blue: 0.33)
-    static let blue = Color(red: 0.42, green: 0.72, blue: 1.0)
-    static let red = Color(red: 1.0, green: 0.37, blue: 0.40)
-    static let gray = Color.white.opacity(0.40)
+    static let darkBackground = Color.black.opacity(0.8)
+    static let lightBackground = Color(nsColor: .windowBackgroundColor).opacity(0.92)
+    static let surface = Color.primary.opacity(0.075)
+    static let control = Color.primary.opacity(0.07)
+    static let border = Color.primary.opacity(0.12)
+    static let primary = Color.primary
+    static let secondary = Color.secondary
+    static let green = Color(nsColor: .systemGreen)
+    static let orange = Color(nsColor: .systemOrange)
+    static let blue = Color(nsColor: .systemBlue)
+    static let red = Color(nsColor: .systemRed)
+    static let gray = Color(nsColor: .systemGray)
 }
 
 struct StatusPanelView: View {
     @ObservedObject var store: CodexStatusStore
     @ObservedObject var collection: TaskCollectionStore
     let onRefresh: () -> Void
-    let onHeightChange: (CGFloat) -> Void
+    let onSizeChange: (NSSize) -> Void
+    let onDragWindow: (CGSize) -> Void
     @State private var showingSettings = false
+    @State private var lastDragTranslation = CGSize.zero
+    @State private var lastPanelDragTranslation = CGSize.zero
+    @State private var lastOrbDragAt = Date.distantPast
+    @AppStorage("yayastatus-is-dark-mode") private var isDarkMode = true
+    @AppStorage("yayastatus-is-collapsed") private var isCollapsed = false
 
     private var activeTaskCount: Int {
         collection.activeTasks.count
     }
 
     private var panelHeight: CGFloat {
-        if showingSettings { return 605 }
-        if activeTaskCount == 0 { return 265 }
-        return min(605, max(230, 138 + CGFloat(activeTaskCount) * 60))
+        if isCollapsed { return 64 }
+        if showingSettings { return 560 }
+        if activeTaskCount == 0 { return 220 }
+        return min(560, max(180, 112 + CGFloat(activeTaskCount) * 56))
+    }
+
+    private var panelSize: NSSize {
+        NSSize(width: isCollapsed ? 64 : (showingSettings ? 390 : 350), height: panelHeight)
+    }
+
+    private var panelBackground: Color {
+        isDarkMode ? Palette.darkBackground : Palette.lightBackground
+    }
+
+    private var readableGreen: Color {
+        isDarkMode ? Palette.green : Color(red: 0.02, green: 0.43, blue: 0.18)
+    }
+
+    private var readableOrange: Color {
+        isDarkMode ? Palette.orange : Color(red: 0.60, green: 0.28, blue: 0.02)
     }
 
     private var failedSourceCount: Int {
@@ -41,113 +66,199 @@ struct StatusPanelView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if showingSettings {
-                settingsHeader
-                settingsContent
-                    .padding(.top, 20)
+        Group {
+            if isCollapsed {
+                collapsedOrb
             } else {
-                header
-                taskContent
-                    .padding(.top, 18)
+                VStack(alignment: .leading, spacing: 0) {
+                    if showingSettings {
+                        settingsHeader
+                        settingsContent
+                            .padding(.top, 16)
+                    } else {
+                        header
+                        taskContent
+                            .padding(.top, 16)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(width: panelSize.width, height: panelSize.height)
+                .background {
+                    RoundedRectangle(cornerRadius: 19, style: .continuous)
+                        .fill(panelBackground)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 19, style: .continuous)
+                        .stroke(Palette.border, lineWidth: 1)
+                }
             }
         }
-        .padding(20)
-        .frame(width: 390, height: panelHeight)
-        .background {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Palette.background)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Palette.border, lineWidth: 1)
-        }
-        .preferredColorScheme(.dark)
-        .onAppear { onHeightChange(panelHeight) }
-        .onChange(of: panelHeight) { onHeightChange($0) }
+        .preferredColorScheme(isDarkMode ? .dark : .light)
+        .animation(.easeInOut(duration: 0.2), value: isDarkMode)
+        .onAppear { onSizeChange(panelSize) }
+        .onChange(of: panelSize) { onSizeChange($0) }
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 11) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(Palette.green.opacity(0.14))
-                    .frame(width: 38, height: 38)
-                Image(systemName: "square.stack.3d.up.fill")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Palette.green)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text("丫丫状态")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Palette.primary)
-                Text("正在进行的 AI 任务")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.secondary)
-            }
+        HStack(alignment: .center, spacing: 6) {
+            Image(systemName: "square.stack.3d.up.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(readableGreen)
+                .frame(width: 19, height: 19)
+            Text("丫丫状态")
+                .font(.system(size: 8.5, weight: .semibold))
+                .tracking(0.4)
+                .foregroundStyle(Palette.secondary)
             Spacer()
-            Button {
-                onRefresh()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Palette.secondary)
-                    .frame(width: 29, height: 29)
-                    .background(Circle().fill(Color.white.opacity(0.06)))
-            }
-            .buttonStyle(.plain)
-            .help("刷新全部工作台")
+            appearanceButton
+            collapseButton
             Button {
                 showingSettings = true
             } label: {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: "gearshape")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Palette.secondary)
-                        .frame(width: 29, height: 29)
-                        .background(Circle().fill(Color.white.opacity(0.06)))
+                        .frame(width: 27, height: 27)
+                        .background(Circle().fill(Palette.control))
                     if failedSourceCount > 0 {
-                        Circle().fill(Palette.red).frame(width: 7, height: 7)
+                        Circle().fill(Palette.red).frame(width: 6, height: 6)
                     }
                 }
             }
             .buttonStyle(.plain)
             .help("设置与工作台")
         }
+        .contentShape(Rectangle())
+        .simultaneousGesture(panelDragGesture)
+    }
+
+    private var panelDragGesture: some Gesture {
+        DragGesture(minimumDistance: 5)
+            .onChanged { value in
+                let delta = CGSize(width: value.translation.width - lastPanelDragTranslation.width,
+                                   height: value.translation.height - lastPanelDragTranslation.height)
+                lastPanelDragTranslation = value.translation
+                onDragWindow(delta)
+            }
+            .onEnded { _ in lastPanelDragTranslation = .zero }
+    }
+
+    private var appearanceButton: some View {
+        Button { isDarkMode.toggle() } label: {
+            Image(systemName: isDarkMode ? "sun.max" : "moon.stars")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Palette.secondary)
+                .frame(width: 27, height: 27)
+                .background(Circle().fill(Palette.control))
+        }
+        .buttonStyle(.plain)
+        .help(isDarkMode ? "切换到日间外观" : "切换到深色外观")
+    }
+
+    private var collapseButton: some View {
+        Button { isCollapsed = true } label: {
+            Image(systemName: "minus")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Palette.secondary)
+                .frame(width: 27, height: 27)
+                .background(Circle().fill(Palette.control))
+        }
+        .buttonStyle(.plain)
+        .help("收起成状态圆球")
+    }
+
+    private var collapsedOrb: some View {
+        Button {
+            guard Date().timeIntervalSince(lastOrbDragAt) > 0.3 else { return }
+            showingSettings = false
+            isCollapsed = false
+        } label: {
+            ZStack {
+                Circle().fill(panelBackground)
+                Circle().stroke(Palette.border, lineWidth: 1)
+                Circle()
+                    .trim(from: 0, to: activeTaskCount > 0 ? 0.76 : 1)
+                    .stroke(activeTaskCount > 0 ? Palette.orange : Palette.gray.opacity(0.5),
+                            style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(5)
+                if activeTaskCount > 0 {
+                    Text(activeTaskCount > 9 ? "9+" : String(activeTaskCount))
+                        .font(.system(size: activeTaskCount > 9 ? 15 : 20, weight: .semibold,
+                                      design: .rounded))
+                        .foregroundStyle(Palette.primary)
+                } else {
+                    Image(systemName: "square.stack.3d.up")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(Palette.secondary)
+                }
+                if failedSourceCount > 0 {
+                    Circle()
+                        .fill(Palette.red)
+                        .frame(width: 8, height: 8)
+                        .overlay(Circle().stroke(panelBackground, lineWidth: 1.5))
+                        .offset(x: 19, y: -19)
+                }
+            }
+            .frame(width: 60, height: 60)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("\(activeTaskCount) 个进行中；点击展开，拖动可移动")
+        .accessibilityLabel("\(activeTaskCount) 个进行中，点击展开丫丫状态")
+        .simultaneousGesture(DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                lastOrbDragAt = .now
+                let delta = CGSize(width: value.translation.width - lastDragTranslation.width,
+                                   height: value.translation.height - lastDragTranslation.height)
+                lastDragTranslation = value.translation
+                onDragWindow(delta)
+            }
+            .onEnded { _ in
+                lastOrbDragAt = .now
+                lastDragTranslation = .zero
+            })
+        .frame(width: 64, height: 64)
     }
 
     private var settingsHeader: some View {
-        HStack(spacing: 11) {
+        HStack(spacing: 8) {
             Button {
                 showingSettings = false
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Palette.primary)
-                    .frame(width: 38, height: 38)
-                    .background(RoundedRectangle(cornerRadius: 11).fill(Palette.surface))
+                    .frame(width: 27, height: 27)
+                    .background(Circle().fill(Palette.control))
             }
             .buttonStyle(.plain)
             .help("返回任务列表")
             VStack(alignment: .leading, spacing: 2) {
                 Text("设置")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Palette.primary)
                 Text("工作台连接状态")
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(Palette.secondary)
             }
             Spacer()
+            appearanceButton
+            collapseButton
             Button(action: onRefresh) {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Palette.secondary)
-                    .frame(width: 29, height: 29)
-                    .background(Circle().fill(Color.white.opacity(0.06)))
+                    .frame(width: 27, height: 27)
+                    .background(Circle().fill(Palette.control))
             }
             .buttonStyle(.plain)
             .help("刷新全部工作台")
         }
+        .contentShape(Rectangle())
+        .simultaneousGesture(panelDragGesture)
     }
 
     private var settingsContent: some View {
@@ -199,9 +310,9 @@ struct StatusPanelView: View {
     private func connectionColor(_ state: SourceConnectionState) -> Color {
         switch state {
         case .checking: Palette.gray
-        case .connected: Palette.green
+        case .connected: readableGreen
         case .partial: Palette.blue
-        case .setupRequired: Palette.orange
+        case .setupRequired: readableOrange
         case .unavailable: Palette.red
         }
     }
@@ -249,7 +360,7 @@ struct StatusPanelView: View {
             HStack {
                 Text("\(activeTaskCount) 个进行中")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(activeTaskCount == 0 ? Palette.secondary : Palette.green)
+                    .foregroundStyle(activeTaskCount == 0 ? Palette.secondary : readableGreen)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 7) {
@@ -379,18 +490,18 @@ struct StatusPanelView: View {
         if task.state == .unknown {
             switch connectionState(for: task.source) {
             case .checking, .partial: return Palette.blue
-            case .setupRequired: return Palette.orange
+            case .setupRequired: return readableOrange
             case .unavailable: return Palette.red
             case .connected: return Palette.gray
             }
         }
         return switch task.state {
         case .checking: Palette.blue
-        case .working: Palette.orange
-        case .waiting: Palette.orange
-        case .completed: Palette.green
-        case .ended: Palette.green
-        case .interrupted: Palette.orange
+        case .working: readableOrange
+        case .waiting: readableOrange
+        case .completed: readableGreen
+        case .ended: readableGreen
+        case .interrupted: readableOrange
         case .failed: Palette.red
         case .unknown: Palette.gray
         case .sessionOnly: Palette.gray

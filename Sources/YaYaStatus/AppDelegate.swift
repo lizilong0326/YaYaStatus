@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         piAgentStore.start()
         deepSeekWebStore.start()
         showPanel()
+        savePanelFrame()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -50,16 +51,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowDidMove(_ notification: Notification) {
+        savePanelFrame()
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        savePanelFrame()
+    }
+
+    private func savePanelFrame() {
         guard panel != nil else { return }
         UserDefaults.standard.set(NSStringFromRect(panel.frame), forKey: Self.savedFrameKey)
     }
 
     private func installPanel() {
-        let size = NSSize(width: 390, height: 265)
+        let size = UserDefaults.standard.bool(forKey: "yayastatus-is-collapsed")
+            ? NSSize(width: 64, height: 64) : NSSize(width: 350, height: 220)
         let initialFrame = restoredFrame(size: size)
         panel = FloatingStatusPanel(
             contentRect: initialFrame,
-            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -74,6 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
+        panel.minSize = NSSize(width: 64, height: 64)
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
@@ -83,28 +94,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             store: codexStore,
             collection: taskCollection,
             onRefresh: { [weak self] in self?.refreshAll() },
-            onHeightChange: { [weak self] height in self?.resizePanel(to: height) }
+            onSizeChange: { [weak self] size in self?.resizePanel(to: size) },
+            onDragWindow: { [weak self] delta in self?.movePanel(by: delta) }
         ))
     }
 
-    private func resizePanel(to height: CGFloat) {
-        guard panel != nil, panel.frame.height != height else { return }
+    private func resizePanel(to size: NSSize) {
+        guard panel != nil, panel.frame.size != size else { return }
         let frame = panel.frame
         let area = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? frame
-        let originY = min(max(frame.maxY - height, area.minY + 8), area.maxY - height - 8)
-        panel.setFrame(NSRect(x: frame.minX, y: originY, width: frame.width, height: height),
+        let originX = min(max(frame.maxX - size.width, area.minX + 8), area.maxX - size.width - 8)
+        let originY = min(max(frame.maxY - size.height, area.minY + 8), area.maxY - size.height - 8)
+        panel.setFrame(NSRect(x: originX, y: originY, width: size.width, height: size.height),
                        display: true)
+        savePanelFrame()
+    }
+
+    private func movePanel(by delta: CGSize) {
+        guard panel != nil else { return }
+        let frame = panel.frame
+        let area = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? frame
+        let x = min(max(frame.minX + delta.width, area.minX + 8), area.maxX - frame.width - 8)
+        let y = min(max(frame.minY - delta.height, area.minY + 8), area.maxY - frame.height - 8)
+        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        savePanelFrame()
     }
 
     private func restoredFrame(size: NSSize) -> NSRect {
         if let value = UserDefaults.standard.string(forKey: Self.savedFrameKey) {
             let frame = NSRectFromString(value)
-            if frame.width > 200, frame.height > 200,
+            if frame.width >= 60, frame.height >= 60,
                let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(frame) }) {
                 let area = screen.visibleFrame
                 return NSRect(
-                    x: min(max(frame.minX, area.minX + 8), area.maxX - size.width - 8),
-                    y: min(max(frame.minY, area.minY + 8), area.maxY - size.height - 8),
+                    x: min(max(frame.maxX - size.width, area.minX + 8), area.maxX - size.width - 8),
+                    y: min(max(frame.maxY - size.height, area.minY + 8), area.maxY - size.height - 8),
                     width: size.width,
                     height: size.height
                 )
