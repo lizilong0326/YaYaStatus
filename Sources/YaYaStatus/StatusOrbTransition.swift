@@ -49,4 +49,12 @@ enum StatusOrbTransition {
         }), let outcome = OrbTaskOutcome(state: task.state) else { return nil }
         return OrbTaskFinishCue(outcome: outcome, taskTitle: task.title)
     }
+
+    static func hasNewCompletion(previous: [String: MonitoredTaskState],
+                                 current: [MonitoredTask]) -> Bool {
+        current.contains { task in
+            guard task.state == .completed, let oldState = previous[task.id] else { return false }
+            return oldState == .working || oldState == .waiting
+        }
+    }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 
 final class FloatingStatusPanel: NSPanel {
@@ -22,6 +23,7 @@ final class FloatingStatusPanel: NSPanel {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let taskCollection = TaskCollectionStore()
+    private let feishuNotifier = FeishuCompletionNotifier()
     private lazy var codexStore = CodexStatusStore(collection: taskCollection)
     private lazy var workBuddyStore = WorkBuddyStatusStore(collection: taskCollection)
     private lazy var kimiWorkStore = KimiWorkStatusStore(collection: taskCollection)
@@ -30,12 +32,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private lazy var piAgentStore = PiAgentStatusStore(collection: taskCollection)
     private lazy var deepSeekWebStore = DeepSeekWebStatusStore(collection: taskCollection)
     private var panel: FloatingStatusPanel!
+    private var completionToast: NSPanel?
+    private var completionToastDismissal: Task<Void, Never>?
+    private var completionToastGeneration = 0
+    private lazy var completionSound = NSSound(named: NSSound.Name("Glass"))
     private var statusItem: NSStatusItem!
     private var pendingFrameSave: Task<Void, Never>?
     private static let savedFrameKey = "floating-panel-frame-v1"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        taskCollection.onTaskCompleted = { [weak self] task in
+            self?.feishuNotifier.notify(task)
+        }
         installPanel()
         DragDiagnostics.shared.record("app.launch", window: panel,
                                       details: "movableByBackground=\(panel.isMovableByWindowBackground)")
@@ -58,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         DragDiagnostics.shared.record("app.terminate", window: panel)
+        dismissCompletionToast()
         pendingFrameSave?.cancel()
         savePanelFrame()
         codexStore.stop()
@@ -71,11 +81,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func windowDidMove(_ notification: Notification) {
         DragDiagnostics.shared.record("window.didMove", window: panel)
+        dismissCompletionToast()
         schedulePanelFrameSave()
     }
 
     func windowDidResize(_ notification: Notification) {
         DragDiagnostics.shared.record("window.didResize", window: panel)
+        dismissCompletionToast()
         schedulePanelFrameSave()
     }
 
@@ -127,13 +139,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.contentView = NSHostingView(rootView: StatusPanelView(
             store: codexStore,
             collection: taskCollection,
+            feishuNotifier: feishuNotifier,
             onRefresh: { [weak self] in self?.refreshAll() },
-            onSizeChange: { [weak self] size in self?.resizePanel(to: size) }
+            onSizeChange: { [weak self] size in self?.resizePanel(to: size) },
+            onCompletion: { [weak self] in self?.showCompletionToast() }
         ))
     }
 
     private func resizePanel(to size: NSSize) {
         guard panel != nil else { return }
+        if size.width > StatusOrbMetrics.windowSide { dismissCompletionToast() }
         DragDiagnostics.shared.record("panel.resize.request", window: panel,
                                       details: "size=(\(size.width),\(size.height))")
         panel.isMovableByWindowBackground = size.width > StatusOrbMetrics.windowSide
@@ -146,6 +161,106 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                        display: true)
         DragDiagnostics.shared.record("panel.resize.applied", window: panel)
         savePanelFrame()
+    }
+
+    private func showCompletionToast() {
+        guard panel != nil,
+              UserDefaults.standard.bool(forKey: "yayastatus-is-collapsed"),
+              panel.frame.width <= StatusOrbMetrics.windowSide + 1 else { return }
+
+        if completionToast == nil {
+            let toast = NSPanel(contentRect: .zero,
+                                styleMask: [.borderless, .nonactivatingPanel],
+                                backing: .buffered, defer: false)
+            toast.title = "任务完成提示"
+            toast.backgroundColor = .clear
+            toast.isOpaque = false
+            toast.hasShadow = true
+            toast.ignoresMouseEvents = true
+            toast.level = .statusBar
+            toast.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            toast.hidesOnDeactivate = false
+            toast.isReleasedWhenClosed = false
+            toast.contentView = NSHostingView(rootView: CompletionToastView())
+            completionToast = toast
+        }
+
+        guard let toast = completionToast else { return }
+        completionToastDismissal?.cancel()
+        completionToastGeneration &+= 1
+        let area = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? panel.frame
+        let finalFrame = CompletionToastPlacement.frame(beside: panel.frame, within: area)
+        let wasVisible = toast.isVisible
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if !wasVisible && !reduceMotion {
+            let generation = completionToastGeneration
+            toast.setFrame(CompletionToastPlacement.entryFrame(beside: panel.frame, within: area),
+                           display: true)
+            toast.alphaValue = 0
+            toast.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.28
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                toast.animator().setFrame(finalFrame, display: true)
+                toast.animator().alphaValue = 1
+            } completionHandler: { [weak self, weak toast] in
+                Task { @MainActor in
+                    guard let self, self.completionToastGeneration == generation else { return }
+                    DragDiagnostics.shared.record("toast.entry.complete", window: toast)
+                }
+            }
+        } else if wasVisible && !reduceMotion {
+            toast.setFrame(finalFrame, display: true)
+            toast.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.12
+                toast.animator().alphaValue = 1
+            }
+        } else {
+            toast.setFrame(finalFrame, display: true)
+            toast.alphaValue = 1
+            toast.orderFrontRegardless()
+        }
+        if UserDefaults.standard.object(forKey: "yayastatus-completion-sound-enabled") as? Bool ?? true {
+            if let sound = completionSound {
+                sound.volume = 0.4
+                DragDiagnostics.shared.record("toast.sound", details: "played=\(sound.play())")
+            } else {
+                NSSound.beep()
+            }
+        }
+        DragDiagnostics.shared.record("toast.show", window: completionToast,
+                                      details: "orb=\(NSStringFromRect(panel.frame))")
+        completionToastDismissal = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            self?.dismissCompletionToast(animated: true)
+        }
+    }
+
+    private func dismissCompletionToast(animated: Bool = false) {
+        completionToastDismissal?.cancel()
+        completionToastDismissal = nil
+        completionToastGeneration &+= 1
+        guard let toast = completionToast, toast.isVisible else { return }
+        DragDiagnostics.shared.record("toast.dismiss", window: toast)
+        guard animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            toast.orderOut(nil)
+            toast.alphaValue = 1
+            return
+        }
+        let generation = completionToastGeneration
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            toast.animator().alphaValue = 0
+        } completionHandler: { [weak self, weak toast] in
+            Task { @MainActor in
+                guard let self, self.completionToastGeneration == generation else { return }
+                toast?.orderOut(nil)
+                toast?.alphaValue = 1
+            }
+        }
     }
 
     private func restoredFrame(size: NSSize) -> NSRect {

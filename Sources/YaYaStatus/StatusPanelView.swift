@@ -19,14 +19,17 @@ private enum Palette {
 struct StatusPanelView: View {
     @ObservedObject var store: CodexStatusStore
     @ObservedObject var collection: TaskCollectionStore
+    @ObservedObject var feishuNotifier: FeishuCompletionNotifier
     let onRefresh: () -> Void
     let onSizeChange: (NSSize) -> Void
+    let onCompletion: () -> Void
     @State private var showingSettings = false
     @State private var knownTaskStates: [String: MonitoredTaskState]?
     @State private var finishCue: OrbTaskFinishCue?
     @State private var showWorkingBeam = false
     @AppStorage("yayastatus-is-dark-mode") private var isDarkMode = true
     @AppStorage("yayastatus-is-collapsed") private var isCollapsed = false
+    @AppStorage("yayastatus-completion-sound-enabled") private var completionSoundEnabled = true
 
     private var activeTaskCount: Int {
         collection.activeTasks.count
@@ -55,8 +58,11 @@ struct StatusPanelView: View {
         if showingSettings { return 560 }
         let finishedCount = recentFinishedTasks.count
         if activeTaskCount == 0 && finishedCount == 0 { return 140 }
-        let visibleRows = min(6, activeTaskCount + finishedCount)
-        return min(390, max(110, 70 + CGFloat(visibleRows) * 43 + (finishedCount > 0 ? 21 : 0)))
+        let visibleActive = min(6, activeTaskCount)
+        let visibleFinished = min(6 - visibleActive, finishedCount)
+        let contentHeight = 64 + CGFloat(visibleActive) * 53 + CGFloat(visibleFinished) * 43
+            + (finishedCount > 0 ? 25 : 0)
+        return min(390, max(140, contentHeight))
     }
 
     private var panelSize: NSSize {
@@ -74,6 +80,11 @@ struct StatusPanelView: View {
 
     private var readableOrange: Color {
         isDarkMode ? Palette.orange : Color(red: 0.60, green: 0.28, blue: 0.02)
+    }
+
+    private var feishuNotificationsBinding: Binding<Bool> {
+        Binding(get: { collection.feishuNotificationsEnabled },
+                set: { collection.setFeishuNotificationsEnabled($0) })
     }
 
     private var failedSourceCount: Int {
@@ -141,6 +152,10 @@ struct StatusPanelView: View {
         let current = StatusOrbTransition.states(for: collection.tasks)
         defer { knownTaskStates = current }
         guard let knownTaskStates else { return }
+        if isCollapsed && StatusOrbTransition.hasNewCompletion(previous: knownTaskStates,
+                                                               current: collection.tasks) {
+            onCompletion()
+        }
         if let newCue = StatusOrbTransition.newFinish(previous: knownTaskStates,
                                                       current: collection.tasks) {
             finishCue = newCue
@@ -281,6 +296,47 @@ struct StatusPanelView: View {
 
     private var settingsContent: some View {
         VStack(alignment: .leading, spacing: 11) {
+            Toggle(isOn: $completionSoundEnabled) {
+                Label("任务完成提示音", systemImage: "speaker.wave.2")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Palette.primary)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Palette.surface))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle(isOn: feishuNotificationsBinding) {
+                    Label("飞书完成提醒", systemImage: "message")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Palette.primary)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                Text(collection.feishuNotificationsEnabled
+                    ? "在任务列表点亮铃铛，只为选中的进行中任务发送提醒；接收者是本机 feishu-cli 登录账号。"
+                    : "默认关闭。开启后，还需在任务列表为需要提醒的进行中任务点亮铃铛。")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Text(collection.feishuNotificationsEnabled ? feishuNotifier.statusText : "已关闭")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Palette.secondary)
+                        .lineLimit(2)
+                    Spacer(minLength: 4)
+                    Link("接入说明", destination: URL(string: "https://github.com/lizilong0326/YaYaStatus/blob/main/docs/%E9%A3%9E%E4%B9%A6%E9%80%9A%E7%9F%A5%E6%8E%A5%E5%85%A5.md")!)
+                        .font(.system(size: 10))
+                    Button("发送测试") { feishuNotifier.sendTest() }
+                        .font(.system(size: 10))
+                        .disabled(!collection.feishuNotificationsEnabled || feishuNotifier.isSending)
+                }
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Palette.surface))
+
             HStack {
                 Text("工作台")
                     .font(.system(size: 14, weight: .semibold))
@@ -375,14 +431,19 @@ struct StatusPanelView: View {
 
     private var taskContent: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 5) {
+            LazyVStack(alignment: .leading, spacing: 4) {
                 ForEach(collection.activeTasks, id: \.displayID) { task in taskRow(task) }
                 if !recentFinishedTasks.isEmpty {
-                    Text("最近结束")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(Palette.secondary)
-                        .padding(.top, activeTaskCount > 0 ? 7 : 0)
-                        .padding(.bottom, 1)
+                    HStack(spacing: 8) {
+                        Text("最近结束")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Palette.secondary)
+                        Rectangle()
+                            .fill(Palette.border)
+                            .frame(height: 1)
+                    }
+                    .padding(.top, activeTaskCount > 0 ? 11 : 2)
+                    .padding(.bottom, 2)
                     ForEach(recentFinishedTasks, id: \.displayID) { task in taskRow(task) }
                 }
                 if collection.activeTasks.isEmpty && recentFinishedTasks.isEmpty { emptyState }
@@ -393,57 +454,152 @@ struct StatusPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    @ViewBuilder
     private func taskRow(_ task: MonitoredTask) -> some View {
-        Button {
-            if let link = task.openURL { NSWorkspace.shared.open(link) }
-        } label: {
-            HStack(spacing: 7) {
-                Circle()
-                    .fill(color(for: task))
-                    .frame(width: 6, height: 6)
-                    .frame(width: 11)
-                VStack(alignment: .leading, spacing: 2) {
+        if task.state == .working || task.state == .waiting {
+            activeTaskRow(task)
+        } else {
+            finishedTaskRow(task)
+        }
+    }
+
+    private func activeTaskRow(_ task: MonitoredTask) -> some View {
+        let isSelected = collection.hasFeishuNotification(for: task)
+        return HStack(spacing: 9) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(color(for: task))
+                .frame(width: 3, height: 31)
+            Button {
+                if let link = task.openURL { NSWorkspace.shared.open(link) }
+            } label: {
+                VStack(alignment: .leading, spacing: 5) {
                     Text(task.title)
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(Palette.primary)
                         .lineLimit(1)
                     HStack(spacing: 4) {
-                        Text("\(task.source.label) · \(stateLabel(for: task))")
+                        Text(task.source.label)
+                            .foregroundStyle(Palette.secondary)
+                        Text("·")
+                            .foregroundStyle(Palette.gray)
+                        Text(stateLabel(for: task))
                             .foregroundStyle(color(for: task))
-                            .lineLimit(1)
-                        Spacer(minLength: 2)
-                        if task.state == .working || task.state == .waiting {
-                            TimelineView(.periodic(from: .now, by: 1)) { context in
-                                Text(taskTimeLabel(for: task, now: context.date))
-                                    .foregroundStyle(Palette.secondary)
-                                    .lineLimit(1)
-                            }
-                        } else {
-                            Text(taskTimeLabel(for: task, now: .now))
+                        Spacer(minLength: 3)
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text(taskTimeLabel(for: task, now: context.date)
+                                .replacingOccurrences(of: "已运行 ", with: ""))
                                 .foregroundStyle(Palette.secondary)
-                                .lineLimit(1)
+                                .monospacedDigit()
                         }
                     }
                     .font(.system(size: 9.5))
+                    .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(task.openURL == nil)
+            .help(taskOpenHelp(for: task))
+
+            Button {
+                if collection.feishuNotificationsEnabled {
+                    collection.toggleFeishuNotification(for: task)
+                } else {
+                    showingSettings = true
+                }
+            } label: {
+                Image(systemName: collection.feishuNotificationsEnabled
+                    ? (isSelected ? "bell.fill" : "bell") : "bell.slash")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(isSelected ? Palette.blue : Palette.secondary.opacity(
+                        collection.feishuNotificationsEnabled ? 1 : 0.7))
+                    .frame(width: 29, height: 29)
+                    .background(Circle().fill(isSelected ? Palette.blue.opacity(0.18) : Palette.control))
+            }
+            .buttonStyle(.plain)
+            .help(!collection.feishuNotificationsEnabled
+                ? "飞书提醒已关闭，点击前往设置开启"
+                : (isSelected ? "取消这条任务的飞书完成提醒" : "这条任务完成时发送飞书提醒"))
+            .accessibilityLabel(!collection.feishuNotificationsEnabled
+                ? "飞书提醒已关闭，点击前往设置开启"
+                : (isSelected ? "取消 \(task.title) 的飞书完成提醒"
+                    : "开启 \(task.title) 的飞书完成提醒"))
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(isSelected ? Palette.blue.opacity(isDarkMode ? 0.12 : 0.07) : Palette.surface))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .stroke(isSelected ? Palette.blue.opacity(0.34) : Palette.border.opacity(0.55), lineWidth: 1))
+    }
+
+    private func finishedTaskRow(_ task: MonitoredTask) -> some View {
+        Button {
+            if let link = task.openURL { NSWorkspace.shared.open(link) }
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: finishedSymbol(for: task.state))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(color(for: task).opacity(0.85))
+                    .frame(width: 15)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(task.title)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Palette.primary.opacity(0.88))
+                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text(task.source.label)
+                        Text("·")
+                        Text(stateLabel(for: task))
+                        Spacer(minLength: 3)
+                        Text(taskTimeLabel(for: task, now: .now)
+                            .replacingOccurrences(of: "结束于 ", with: ""))
+                            .lineLimit(1)
+                    }
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(Palette.secondary)
                 }
                 if task.openURL != nil {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Palette.secondary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(Palette.gray.opacity(0.7))
+                        .frame(width: 10)
                 }
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Palette.surface))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(task.openURL == nil)
-        .help(task.openScope == .exactTask
-              ? "在 \(task.source.label) 中打开：\(task.title)"
-              : (task.source == .piAgent
-                 ? "打开 VS Code 工作区；暂不能定位到原 Pi 终端"
-                 : "打开 \(task.source.label) 应用；暂不能定位到此任务"))
+        .help(taskOpenHelp(for: task))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Palette.border.opacity(0.7))
+                .frame(height: 0.5)
+                .padding(.leading, 29)
+        }
+    }
+
+    private func finishedSymbol(for state: MonitoredTaskState) -> String {
+        switch state {
+        case .completed: "checkmark.circle.fill"
+        case .ended: "stop.circle"
+        case .interrupted: "pause.circle"
+        case .failed: "exclamationmark.circle.fill"
+        default: "circle"
+        }
+    }
+
+    private func taskOpenHelp(for task: MonitoredTask) -> String {
+        task.openScope == .exactTask
+            ? "在 \(task.source.label) 中打开：\(task.title)"
+            : (task.source == .piAgent
+                ? "打开 VS Code 工作区；暂不能定位到原 Pi 终端"
+                : "打开 \(task.source.label) 应用；暂不能定位到此任务")
     }
 
     private var emptyState: some View {

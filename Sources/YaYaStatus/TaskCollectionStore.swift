@@ -108,11 +108,35 @@ struct SourceConnection: Equatable, Sendable {
 @MainActor
 final class TaskCollectionStore: ObservableObject {
     static let recentTaskLimit = 100
+    private static let feishuEnabledKey = "yayastatus-feishu-notifications-enabled"
 
+    var onTaskCompleted: (@MainActor (MonitoredTask) -> Void)?
     @Published private(set) var tasks: [MonitoredTask] = []
     @Published private(set) var activeTasks: [MonitoredTask] = []
     @Published private(set) var connections: [TaskSource: SourceConnection] = [:]
+    @Published private(set) var feishuNotificationsEnabled = UserDefaults.standard.bool(forKey: feishuEnabledKey)
+    @Published private(set) var feishuSelectedTaskIDs: Set<String> = []
     private var tasksBySource: [TaskSource: [MonitoredTask]] = [:]
+
+    func setFeishuNotificationsEnabled(_ enabled: Bool) {
+        feishuNotificationsEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.feishuEnabledKey)
+        if !enabled { feishuSelectedTaskIDs.removeAll() }
+    }
+
+    func hasFeishuNotification(for task: MonitoredTask) -> Bool {
+        feishuNotificationsEnabled && feishuSelectedTaskIDs.contains(task.id)
+    }
+
+    func toggleFeishuNotification(for task: MonitoredTask) {
+        guard feishuNotificationsEnabled, isActive(task.state),
+              activeTasks.contains(where: { $0.id == task.id && isActive($0.state) }) else { return }
+        if feishuSelectedTaskIDs.contains(task.id) {
+            feishuSelectedTaskIDs.remove(task.id)
+        } else {
+            feishuSelectedTaskIDs.insert(task.id)
+        }
+    }
 
     func setConnection(_ connection: SourceConnection) {
         connections[connection.source] = connection
@@ -137,6 +161,20 @@ final class TaskCollectionStore: ObservableObject {
     }
 
     func replaceTasks(from source: TaskSource, with replacement: [MonitoredTask]) {
+        let oldTasks = tasksBySource[source] ?? []
+        let previous = Dictionary(oldTasks.map { ($0.id, $0.state) },
+                                  uniquingKeysWith: { _, latest in latest })
+        let selectedCompletions = replacement.filter { task in
+            feishuNotificationsEnabled && task.state == .completed
+                && feishuSelectedTaskIDs.contains(task.id)
+                && previous[task.id].map(isActive) == true
+        }
+        let activeIDs = Set(replacement.filter { isActive($0.state) }.map(\.id))
+        let finishedOrMissing = Set(oldTasks.map(\.id)).subtracting(activeIDs)
+            .intersection(feishuSelectedTaskIDs)
+        if !finishedOrMissing.isEmpty {
+            feishuSelectedTaskIDs.subtract(finishedOrMissing)
+        }
         tasksBySource[source] = replacement
         let sorted = tasksBySource.values.flatMap { $0 }.sorted { lhs, rhs in
             if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
@@ -144,9 +182,16 @@ final class TaskCollectionStore: ObservableObject {
         }
         tasks = Array(sorted.prefix(Self.recentTaskLimit))
         activeTasks = sorted.filter { $0.state == .working || $0.state == .waiting }
+        for task in selectedCompletions {
+            onTaskCompleted?(task)
+        }
     }
 
     func tasks(from source: TaskSource) -> [MonitoredTask] {
         tasksBySource[source] ?? []
+    }
+
+    private func isActive(_ state: MonitoredTaskState) -> Bool {
+        state == .working || state == .waiting
     }
 }
