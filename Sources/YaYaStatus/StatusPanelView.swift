@@ -414,6 +414,11 @@ struct StatusPanelView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(Palette.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if source == .cursor,
+               let guide = URL(string: "https://github.com/lizilong0326/YaYaStatus/blob/main/docs/Cursor%E6%8E%A5%E5%85%A5.md") {
+                Link("Cursor 接入说明", destination: guide)
+                    .font(.system(size: 10))
+            }
             if let observedAt = source == .codex ? store.lastTaskSync : connection?.observedAt {
                 HStack(spacing: 3) {
                     Text("上次读取")

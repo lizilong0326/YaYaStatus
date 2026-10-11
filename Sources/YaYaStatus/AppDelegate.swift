@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let taskCollection = TaskCollectionStore()
     private let feishuNotifier = FeishuCompletionNotifier()
     private lazy var codexStore = CodexStatusStore(collection: taskCollection)
+    private lazy var cursorStore = CursorStatusStore(collection: taskCollection)
     private lazy var workBuddyStore = WorkBuddyStatusStore(collection: taskCollection)
     private lazy var kimiWorkStore = KimiWorkStatusStore(collection: taskCollection)
     private lazy var doubaoWorkStore = DoubaoWorkStatusStore(collection: taskCollection)
@@ -50,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                       details: "movableByBackground=\(panel.isMovableByWindowBackground)")
         installMenuBar()
         codexStore.start()
+        cursorStore.start()
         workBuddyStore.start()
         kimiWorkStore.start()
         doubaoWorkStore.start()
@@ -71,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         pendingFrameSave?.cancel()
         savePanelFrame()
         codexStore.stop()
+        cursorStore.stop()
         workBuddyStore.stop()
         kimiWorkStore.stop()
         doubaoWorkStore.stop()
@@ -307,6 +310,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func refreshAll() {
         codexStore.refreshNow()
         Task {
+            await cursorStore.refresh()
             await workBuddyStore.refresh()
             await kimiWorkStore.refresh()
             await doubaoWorkStore.refresh(forceStatusCheck: true)

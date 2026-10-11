@@ -2,6 +2,7 @@ import Foundation
 
 enum TaskSource: String, Codable, CaseIterable, Sendable {
     case codex
+    case cursor
     case workBuddy
     case doubaoWork
     case kimiWork
@@ -12,6 +13,7 @@ enum TaskSource: String, Codable, CaseIterable, Sendable {
     var label: String {
         switch self {
         case .codex: "Codex"
+        case .cursor: "Cursor"
         case .workBuddy: "WorkBuddy"
         case .doubaoWork: "豆包工作"
         case .kimiWork: "Kimi Work"
