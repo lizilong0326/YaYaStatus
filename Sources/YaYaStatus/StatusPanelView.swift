@@ -39,24 +39,22 @@ struct StatusPanelView: View {
         collection.activeTasks.filter { $0.state == .working }.count
     }
 
-    private var recentFinishedTasks: [MonitoredTask] {
+    private var recentOtherTasks: [MonitoredTask] {
         collection.tasks.filter { task in
             switch task.state {
-            case .completed, .ended, .interrupted, .failed: true
+            case .completed, .ended, .interrupted, .failed, .unknown, .sessionOnly: true
             default: false
             }
         }
         .sorted { lhs, rhs in
-            let lhsEnd = lhs.endedAt ?? lhs.updatedAt
-            let rhsEnd = rhs.endedAt ?? rhs.updatedAt
-            return lhsEnd == rhsEnd ? lhs.id < rhs.id : lhsEnd > rhsEnd
+            lhs.updatedAt == rhs.updatedAt ? lhs.id < rhs.id : lhs.updatedAt > rhs.updatedAt
         }
     }
 
     private var panelHeight: CGFloat {
         if isCollapsed { return StatusOrbMetrics.windowSide }
         if showingSettings { return 560 }
-        let finishedCount = recentFinishedTasks.count
+        let finishedCount = recentOtherTasks.count
         if activeTaskCount == 0 && finishedCount == 0 { return 140 }
         let visibleActive = min(6, activeTaskCount)
         let visibleFinished = min(6 - visibleActive, finishedCount)
@@ -419,6 +417,11 @@ struct StatusPanelView: View {
                 Link("Cursor 接入说明", destination: guide)
                     .font(.system(size: 10))
             }
+            if source == .devin || source == .geminiDesktop,
+               let guide = URL(string: "https://github.com/lizilong0326/YaYaStatus/blob/main/docs/Devin%E4%B8%8EGemini%E6%8E%A5%E5%85%A5.md") {
+                Link("Devin 与 Gemini 接入说明", destination: guide)
+                    .font(.system(size: 10))
+            }
             if let observedAt = source == .codex ? store.lastTaskSync : connection?.observedAt {
                 HStack(spacing: 3) {
                     Text("上次读取")
@@ -438,9 +441,9 @@ struct StatusPanelView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 4) {
                 ForEach(collection.activeTasks, id: \.displayID) { task in taskRow(task) }
-                if !recentFinishedTasks.isEmpty {
+                if !recentOtherTasks.isEmpty {
                     HStack(spacing: 8) {
-                        Text("最近结束")
+                        Text("最近任务")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(Palette.secondary)
                         Rectangle()
@@ -449,9 +452,9 @@ struct StatusPanelView: View {
                     }
                     .padding(.top, activeTaskCount > 0 ? 11 : 2)
                     .padding(.bottom, 2)
-                    ForEach(recentFinishedTasks, id: \.displayID) { task in taskRow(task) }
+                    ForEach(recentOtherTasks, id: \.displayID) { task in taskRow(task) }
                 }
-                if collection.activeTasks.isEmpty && recentFinishedTasks.isEmpty { emptyState }
+                if collection.activeTasks.isEmpty && recentOtherTasks.isEmpty { emptyState }
             }
             .padding(.vertical, 1)
         }
@@ -658,7 +661,11 @@ struct StatusPanelView: View {
                 ? "M月d日 HH:mm" : "yyyy年M月d日 HH:mm"
             return "结束于 \(formatter.string(from: endedAt))"
         }
-        return task.state == .sessionOnly ? "无任务时间" : "任务时间未确认"
+        guard task.updatedAt > Date(timeIntervalSince1970: 1_000_000_000) else { return "更新时间未确认" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = Calendar.current.isDateInToday(task.updatedAt) ? "今天 HH:mm" : "M月d日 HH:mm"
+        return "更新于 \(formatter.string(from: task.updatedAt))"
     }
 
     private func color(for task: MonitoredTask) -> Color {

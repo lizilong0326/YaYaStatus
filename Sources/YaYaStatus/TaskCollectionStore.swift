@@ -3,6 +3,8 @@ import Foundation
 enum TaskSource: String, Codable, CaseIterable, Sendable {
     case codex
     case cursor
+    case devin
+    case geminiDesktop
     case workBuddy
     case doubaoWork
     case kimiWork
@@ -14,6 +16,8 @@ enum TaskSource: String, Codable, CaseIterable, Sendable {
         switch self {
         case .codex: "Codex"
         case .cursor: "Cursor"
+        case .devin: "Devin"
+        case .geminiDesktop: "Gemini 桌面版"
         case .workBuddy: "WorkBuddy"
         case .doubaoWork: "豆包工作"
         case .kimiWork: "Kimi Work"
