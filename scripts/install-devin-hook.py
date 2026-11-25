@@ -54,4 +54,4 @@ if updated != original:
             os.unlink(temporary)
 shutil.copy2(source, handler)
 handler.chmod(0o700)
-print("Devin Hook 已安装；下次提交的本地任务将写入状态事件")
+print("Devin Hook 已安装；若 Devin 正在运行，请等当前任务结束后退出并重开，再提交新任务")

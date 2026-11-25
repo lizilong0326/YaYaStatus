@@ -6,11 +6,11 @@
 
 运行 `python3 scripts/install-devin-hook.py` 后，安装脚本备份并合并 `~/.config/devin/config.json`，把事件处理器复制到同目录。Devin 的 `UserPromptSubmit` 表示开始一轮，`PostToolUse` 刷新工作心跳，`PermissionRequest` 表示等待操作，`Stop` 表示该轮已完成，`SessionEnd` 表示会话结束。事件文件保存在 `~/Library/Application Support/YaYaStatus/devin/sessions/`，只含会话 ID、轮次 ID、状态和时间；提示词、回复、工具参数与工具输出不会写入事件文件。监控脚本出错时直接退出，不阻塞 Devin。
 
-安装后需要**新提交**一个 Devin 本地任务，已有任务不会补出开始事件；如果新任务仍没有事件，可重启 Devin 后再试。五分钟没有新的事件时，“工作中”降为“状态未知”；关闭 Devin 应用时也会降为未知。点击列表中的任务只打开 Devin 应用，不保证定位到具体会话。云端 Devin 任务以及在 Devin 中运行的其他 ACP 代理尚未验证。
+如果安装时 Devin 已在运行，先等当前任务结束，再退出并重开 Devin，旧代理进程不会加载新配置。之后需要**新提交**一个 Devin 本地任务；已有任务不会补出开始事件。五分钟没有新的事件时，“工作中”降为“状态未知”；关闭 Devin 应用时也会降为未知。点击列表中的任务只打开 Devin 应用，不保证定位到具体会话。云端 Devin 任务以及在 Devin 中运行的其他 ACP 代理尚未验证。
 
 可运行 `python3 scripts/uninstall-devin-hook.py` 移除本项目 Hook。卸载前会备份配置，其他 Hook 保留，历史事件文件仍留在本机。
 
-[Devin 官方生命周期 Hook 文档](https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md)明确这些事件也在 Desktop 触发；本机安装后的真实新任务回调仍需验证。
+[Devin 官方生命周期 Hook 文档](https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md)明确这些事件也在 Desktop 触发。2026-11-25 本机已观察到重启后的真实 `UserPromptSubmit` 事件和悬浮窗“工作中”状态；真实 `Stop` 事件仍待这轮任务结束后核对。
 
 ## Gemini 桌面版
 

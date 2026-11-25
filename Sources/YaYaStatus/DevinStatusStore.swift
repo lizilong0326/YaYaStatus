@@ -169,10 +169,16 @@ final class DevinStatusStore {
         let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.exafunction.windsurf")
             ?? URL(fileURLWithPath: "/Applications/Devin.app", isDirectory: true)
         let hasApp = manager.fileExists(atPath: appURL.path)
-        let running = !NSRunningApplication.runningApplications(withBundleIdentifier: "com.exafunction.windsurf").isEmpty
+        let applications = NSRunningApplication.runningApplications(withBundleIdentifier: "com.exafunction.windsurf")
+        let running = !applications.isEmpty
         let config = manager.homeDirectoryForCurrentUser.appendingPathComponent(".config/devin/config.json")
         let handler = manager.homeDirectoryForCurrentUser.appendingPathComponent(".config/devin/yayastatus-devin-hook.py")
         let installed = manager.fileExists(atPath: handler.path) && Self.hasHook(config)
+        let configModifiedAt = (try? manager.attributesOfItem(atPath: config.path))?[.modificationDate] as? Date
+        let requiresRestart = installed && applications.contains { application in
+            guard let launchedAt = application.launchDate, let configModifiedAt else { return false }
+            return launchedAt < configModifiedAt.addingTimeInterval(-2)
+        }
         do {
             let (sessions, snapshots) = try await reader.readRecent(limit: TaskCollectionStore.recentTaskLimit)
             let now = Date()
@@ -215,12 +221,14 @@ final class DevinStatusStore {
             let hasEvent = snapshots.values.contains { now.timeIntervalSince($0.recordedAt) < 86_400 }
             let detail: String = !hasApp ? "未找到 Devin 桌面版"
                 : !installed ? "会话可读；安装 Hook 后监控新任务运行状态"
+                : requiresRestart ? "Hook 安装后 Devin 尚未重启；当前运行态无法确认"
                 : !running ? "Hook 已安装；Devin 当前未运行"
                 : hasEvent ? "本地任务事件可读；点击任务打开 Devin"
                 : "Hook 已安装；等待下一条 Devin 任务"
             collection.setConnection(SourceConnection(
                 source: .devin,
-                state: !hasApp || !installed ? .setupRequired : (running && hasEvent ? .connected : .partial),
+                state: !hasApp || !installed || requiresRestart ? .setupRequired
+                    : (running && hasEvent ? .connected : .partial),
                 detail: detail, observedAt: snapshots.values.map(\.recordedAt).max()
             ))
         } catch {

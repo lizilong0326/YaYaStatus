@@ -9,7 +9,7 @@
   把多个工作台的进行中、等待和结束，汇成一颗可展开的悬浮圆球。
 </p>
 
-<p align="center"><sub>macOS 13+ · SwiftUI + AppKit · v0.7.0 · 本地运行</sub></p>
+<p align="center"><sub>macOS 13+ · SwiftUI + AppKit · v0.7.1 · 本地运行</sub></p>
 
 当几个 AI 工作台同时处理任务，你需要随时知道：谁还在工作，哪项在等你操作，刚才又完成了什么。丫丫状态把这些变化放在桌面一角；需要细节时，点开圆球查看任务列表，再跳回支持定位的原会话。
 
@@ -49,7 +49,7 @@
 | --- | --- | --- | --- |
 | Codex | 本机 app-server 与任务状态索引 | 工作中、完成、中断、报错及未知；结束类别由本地状态记录判断 | 对应 Codex 任务 |
 | Cursor | 可选的用户级 Agent Hooks，写入本机事件快照 | 本机已观察到真实工作中事件；完成、中断、报错映射通过模拟事件验证；静默超过两分钟转未知 | Cursor 应用，暂不能精确定位会话 |
-| Devin | 桌面 ACP 会话索引；可选的 Devin 生命周期 Hook | 历史本地会话显示“仅会话”；安装 Hook 后，新任务的提交与本轮结束可映射为工作中、已完成；真实新任务回调仍需验证 | Devin 应用，暂不能精确定位会话 |
+| Devin | 桌面 ACP 会话索引；可选的 Devin 生命周期 Hook | 历史本地会话显示“仅会话”；本机已观察到新任务的真实“工作中”事件；结束事件尚待真实任务验证 | Devin 应用，暂不能精确定位会话 |
 | Gemini 桌面版 | 只读本机任务摘要库 | 本机任务的运行、等待、空闲或中止状态；五分钟无新证据的活动状态转未知；普通聊天和未同步的云端任务不在范围内 | Gemini 应用，暂不能精确定位任务 |
 | WorkBuddy | 本机会话库；可选生命周期 Hook | 历史会话与已存状态可读；实时工作、等待及结束事件依赖 Hook，真实新任务回调仍需验证 | 对应会话 |
 | Kimi Work | 只读会话 SQLite 与运行时事件文件 | 会话与可识别的运行、结束事件；长时间静默的任务转为未知 | Kimi 应用，暂不能精确定位会话 |
@@ -105,7 +105,7 @@ python3 scripts/install-cursor-hook.py
 python3 scripts/install-devin-hook.py
 ```
 
-脚本备份并合并 `~/.config/devin/config.json` 的 `UserPromptSubmit`、`Stop`、`SessionEnd` Hook，不读取或保存提示词正文。安装后，在 Devin Desktop 提交一条**新的本地任务**，设置页应出现事件时间；已有会话只显示“仅会话”。可运行 `python3 scripts/uninstall-devin-hook.py` 移除本项目 Hook。Gemini 桌面任务无需安装 Hook。具体边界见[Devin 与 Gemini 接入说明](docs/Devin与Gemini接入.md)。
+脚本备份并合并 `~/.config/devin/config.json` 的任务生命周期 Hook，不读取或保存提示词正文。**如果安装时 Devin 已在运行，先等当前任务结束，再退出并重开 Devin**；旧进程不会加载新配置。之后提交一条新的本地任务，设置页应出现事件时间；已有会话只显示“仅会话”。可运行 `python3 scripts/uninstall-devin-hook.py` 移除本项目 Hook。Gemini 桌面任务无需安装 Hook。具体边界见[Devin 与 Gemini 接入说明](docs/Devin与Gemini接入.md)。
 
 ### WorkBuddy Hook
 
