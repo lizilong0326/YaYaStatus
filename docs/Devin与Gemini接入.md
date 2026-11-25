@@ -10,7 +10,7 @@
 
 可运行 `python3 scripts/uninstall-devin-hook.py` 移除本项目 Hook。卸载前会备份配置，其他 Hook 保留，历史事件文件仍留在本机。
 
-[Devin 官方生命周期 Hook 文档](https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md)明确这些事件也在 Desktop 触发。2026-11-25 本机已观察到重启后的真实 `UserPromptSubmit` 事件和悬浮窗“工作中”状态；真实 `Stop` 事件仍待这轮任务结束后核对。
+[Devin 官方生命周期 Hook 文档](https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks.md)明确这些事件也在 Desktop 触发。2026-11-25 本机已观察到重启后的真实 `UserPromptSubmit`、`PostToolUse` 和 `Stop` 事件；悬浮窗中的同一任务从“工作中”更新为“已完成”，进行中数量同步减少。
 
 ## Gemini 桌面版
 
